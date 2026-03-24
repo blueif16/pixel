@@ -1,0 +1,32 @@
+{
+  "furniture": {
+    "chair_wood_01": {"sprite": "/furniture/chair_wood_01.png", "pixelWidth": 32, "pixelHeight": 32, "gridWidth": 1, "gridHeight": 1, "zLayer": 2},
+    "sofa_blue_01": {"sprite": "/furniture/sofa_blue_01.png", "pixelWidth": 64, "pixelHeight": 32, "gridWidth": 2, "gridHeight": 1, "zLayer": 2},
+    "table_round_01": {"sprite": "/furniture/table_round_01.png", "pixelWidth": 32, "pixelHeight": 32, "gridWidth": 1, "gridHeight": 1, "zLayer": 2},
+    "rug_red_01": {"sprite": "/furniture/rug_red_01.png", "pixelWidth": 64, "pixelHeight": 64, "gridWidth": 2, "gridHeight": 2, "zLayer": 0},
+    "lamp_tall_01": {"sprite": "/furniture/lamp_tall_01.png", "pixelWidth": 32, "pixelHeight": 32, "gridWidth": 1, "gridHeight": 1, "zLayer": 2},
+    "bookshelf_01": {"sprite": "/furniture/bookshelf_01.png", "pixelWidth": 64, "pixelHeight": 32, "gridWidth": 2, "gridHeight": 1, "zLayer": 2}
+  },
+  "tiles": {
+    "floor": "/tiles/floor_wood.png",
+    "wall": "/tiles/wall_stone.png",
+    "door": "/tiles/door_wood.png"
+  },
+  "characterOptions": {
+    "hairStyles": ["Short", "Long", "Curly", "Mohawk", "Ponytail"],
+    "hairColors": ["Brown", "Blonde", "Red", "Black", "White"],
+    "skinTones": ["Light", "Medium", "Tan", "Dark", "Deep"],
+    "outfits": ["T-shirt", "Hoodie", "Dress", "Overalls", "Jacket"],
+    "outfitColors": ["Red", "Blue", "Green", "Yellow", "Purple", "White", "Black"],
+    "accessories": ["None", "Glasses", "Hat", "Scarf", "Backpack"]
+  },
+  "spriteSheet": {
+    "cellSize": 32,
+    "cols": 8,
+    "rows": 4,
+    "colMap": {"idle":0, "stepA":1, "stepB":2, "sit":3, "wave":4, "sleep":5, "eat":6, "laugh":7},
+    "rowMap": {"down":0, "left":1, "up":2, "right":3}
+  },
+  "tileSize": 32,
+  "gridSize": 12
+}

@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pixel Social</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #1a1a2e; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    #app { width: 100%; max-width: 500px; padding: 20px; }
+
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    h1 { text-align: center; margin-bottom: 24px; font-size: 28px; color: #e94560; }
+    h2 { text-align: center; margin-bottom: 16px; font-size: 20px; color: #0f3460; }
+
+    .form-group { margin-bottom: 16px; }
+    label { display: block; margin-bottom: 6px; font-size: 14px; color: #aaa; }
+    input, select { width: 100%; padding: 12px; border: 2px solid #16213e; border-radius: 8px; background: #0f3460; color: #fff; font-size: 16px; }
+    input:focus, select:focus { outline: none; border-color: #e94560; }
+    button { width: 100%; padding: 14px; border: none; border-radius: 8px; background: #e94560; color: #fff; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 8px; }
+    button:hover { background: #ff6b6b; }
+    button:disabled { background: #555; cursor: not-allowed; }
+
+    .secondary-btn { background: #16213e; }
+    .secondary-btn:hover { background: #1f3460; }
+
+    .error { color: #ff6b6b; font-size: 14px; margin-top: 8px; text-align: center; }
+    .success { color: #4ecdc4; font-size: 14px; margin-top: 8px; text-align: center; }
+
+    /* Character Creator */
+    #character-creator { background: #16213e; border-radius: 12px; padding: 24px; }
+    .creator-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .creator-grid .form-group.full { grid-column: 1 / -1; }
+
+    /* Loading */
+    .loading-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+    .spinner { width: 60px; height: 60px; border: 4px solid #333; border-top-color: #e94560; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 18px; color: #fff; text-align: center; }
+
+    /* Game Canvas */
+    #game-view { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+    #game-canvas { border: 3px solid #e94560; border-radius: 8px; cursor: pointer; background: #0f3460; }
+    #controls-hint { font-size: 14px; color: #888; text-align: center; }
+    #chat-container { width: 100%; max-width: 384px; }
+    #chat-messages { height: 120px; overflow-y: auto; background: #16213e; border-radius: 8px; padding: 12px; margin-bottom: 8px; font-size: 14px; }
+    .chat-msg { margin-bottom: 6px; }
+    .chat-msg .name { color: #4ecdc4; font-weight: bold; }
+    .chat-msg .text { color: #eee; }
+    #chat-form { display: flex; gap: 8px; }
+    #chat-form input { flex: 1; margin: 0; }
+    #chat-form button { width: auto; margin: 0; padding: 12px 20px; }
+    #player-list { font-size: 13px; color: #888; text-align: center; }
+
+    .avatar-preview { width: 64px; height: 64px; border: 2px solid #e94560; border-radius: 8px; margin: 0 auto 16px; image-rendering: pixelated; display: block; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <!-- Auth Screen -->
+  <div id="auth-screen" class="screen active">
+    <h1>Pixel Social</h1>
+    <div id="auth-forms">
+      <div id="signin-form">
+        <h2>Sign In</h2>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="signin-email" placeholder="you@example.com">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="signin-password" placeholder="••••••••">
+        </div>
+        <button id="signin-btn">Sign In</button>
+        <div id="signin-error" class="error"></div>
+        <button id="show-signup-btn" class="secondary-btn">Create Account</button>
+      </div>
+      <div id="signup-form" style="display:none;">
+        <h2>Create Account</h2>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="signup-email" placeholder="you@example.com">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="signup-password" placeholder="8+ chars, upper, lower, number">
+        </div>
+        <div class="form-group">
+          <label>Display Name</label>
+          <input type="text" id="signup-name" placeholder="YourName">
+        </div>
+        <button id="signup-btn">Create Account</button>
+        <div id="signup-error" class="error"></div>
+        <button id="show-signin-btn" class="secondary-btn">Back to Sign In</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Character Creator Screen -->
+  <div id="creator-screen" class="screen">
+    <h1>Create Your Character</h1>
+    <img id="avatar-preview" class="avatar-preview" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" alt="Avatar preview">
+    <div id="character-creator">
+      <div class="creator-grid">
+        <div class="form-group">
+          <label>Hair Style</label>
+          <select id="hair-style"></select>
+        </div>
+        <div class="form-group">
+          <label>Hair Color</label>
+          <select id="hair-color"></select>
+        </div>
+        <div class="form-group full">
+          <label>Skin Tone</label>
+          <select id="skin-tone"></select>
+        </div>
+        <div class="form-group">
+          <label>Outfit</label>
+          <select id="outfit"></select>
+        </div>
+        <div class="form-group">
+          <label>Outfit Color</label>
+          <select id="outfit-color"></select>
+        </div>
+        <div class="form-group full">
+          <label>Accessory</label>
+          <select id="accessory"></select>
+        </div>
+      </div>
+      <button id="create-char-btn">Create Character</button>
+      <div id="creator-error" class="error"></div>
+    </div>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="game-screen" class="screen">
+    <h1>Pixel Social</h1>
+    <div id="game-view">
+      <canvas id="game-canvas" width="384" height="384"></canvas>
+      <div id="player-list"></div>
+      <div id="chat-container">
+        <div id="chat-messages"></div>
+        <form id="chat-form">
+          <input type="text" id="chat-input" placeholder="Press Enter to chat..." maxlength="200">
+          <button type="submit">Send</button>
+        </form>
+      </div>
+      <div id="controls-hint">Arrow keys or click to move. Click a chair to sit.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="loading-overlay" style="display:none;">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">Creating your character...</div>
+</div>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+const ALB_DNS = window.ALB_DNS || 'localhost:8080';
+const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ASSET_BASE = window.ASSET_BASE || 'https://d1234.cloudfront.net';
+
+const CELL = 32;
+const GRID_SIZE = 12;
+const TILE_SIZE = 32;
+
+const DIR_ROW = { down: 0, left: 1, up: 2, right: 3 };
+const POSE_COL = { idle: 0, stepA: 1, stepB: 2, sit: 3, wave: 4, sleep: 5, eat: 6, laugh: 7 };
+
+let authState = {
+  email: '',
+  password: '',
+  displayName: '',
+  jwt: null,
+  playerId: null
+};
+
+let gameState = {
+  ws: null,
+  manifest: null,
+  players: {},
+  furniture: {},
+  tiles: {},
+  self: null,
+  avatarUrl: null,
+  direction: 'down',
+  pose: 'idle'
+};
+
+const spriteCache = new Map();
+
+// ============================================================
+// Cognito Auth (SRP-like via fetch to backend)
+// For dev: using a simple email/password auth stub.
+// In production, use Amazon Cognito SDK.
+// ============================================================
+
+// Configure these for your Cognito User Pool:
+//   COGNITO_USER_POOL_ID = 'us-east-1_xxxxx'
+//   COGNITO_CLIENT_ID = 'xxxxx'
+// For now, we store JWT in memory and send it on WS connect.
+
+let COGNITO_USER_POOL_ID = window.COGNITO_USER_POOL_ID || '';
+let COGNITO_CLIENT_ID = window.COGNITO_CLIENT_ID || '';
+let COGNITO_REGION = window.COGNITO_REGION || 'us-east-1';
+
+// Simple auth stub that stores credentials for WS auth.
+// Real implementation would use cognito-identity-js or
+// Amazon Cognito Hosted UI via redirect.
+async function signUp(email, password, displayName) {
+  if (!COGNITO_USER_POOL_ID || !COGNITO_CLIENT_ID) {
+    // Dev mode: store credentials locally
+    authState.email = email;
+    authState.password = password;
+    authState.displayName = displayName;
+    // Generate a fake JWT for local dev (server will validate or skip)
+    authState.jwt = btoa(JSON.stringify({ sub: 'dev-' + Date.now(), email, name: displayName }));
+    authState.playerId = 'dev-' + Date.now();
+    return { success: true };
+  }
+
+  const { CognitoUserPool, CognitoUser, CognitoAttribute } = await import('./cognito-sdk.js').catch(() => {
+    throw new Error('Cognito SDK not loaded. Configure COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID');
+  });
+
+  const pool = new CognitoUserPool({ UserPoolId: COGNITO_USER_POOL_ID, ClientId: COGNITO_CLIENT_ID });
+  return new Promise((resolve, reject) => {
+    pool.signUp(email, password, [new CognitoAttribute({ Name: 'email', Value: email }), new CognitoAttribute({ Name: 'preferred_username', Value: displayName })], null, (err, result) => {
+      if (err) reject(err);
+      else resolve({ success: true, user: result.user });
+    });
+  });
+}
+
+async function signIn(email, password) {
+  if (!COGNITO_USER_POOL_ID || !COGNITO_CLIENT_ID) {
+    // Dev mode
+    authState.email = email;
+    authState.password = password;
+    authState.jwt = btoa(JSON.stringify({ sub: 'dev-' + Date.now(), email, name: email.split('@')[0] }));
+    authState.playerId = 'dev-' + Date.now();
+    return { success: true };
+  }
+
+  const { CognitoUserPool, CognitoUser, AuthenticationDetails } = await import('./cognito-sdk.js').catch(() => {
+    throw new Error('Cognito SDK not loaded');
+  });
+
+  const pool = new CognitoUserPool({ UserPoolId: COGNITO_USER_POOL_ID, ClientId: COGNITO_CLIENT_ID });
+  const user = new CognitoUser({ Username: email, Pool: pool });
+  return new Promise((resolve, reject) => {
+    user.authenticateUser(new AuthenticationDetails({ Username: email, Password: password }), {
+      onSuccess: (result) => {
+        authState.jwt = result.getIdToken().getJwtToken();
+        authState.playerId = user.getUsername();
+        resolve({ success: true });
+      },
+      onFailure: reject
+    });
+  });
+}
+
+function getAuthHeaders() {
+  return { Authorization: authState.jwt };
+}
+
+// ============================================================
+// Screen Navigation
+// ============================================================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function showLoading(text = 'Loading...') {
+  document.getElementById('loading-text').textContent = text;
+  document.getElementById('loading-overlay').style.display = 'flex';
+}
+
+function hideLoading() {
+  document.getElementById('loading-overlay').style.display = 'none';
+}
+
+// ============================================================
+// Auth Screen
+// ============================================================
+document.getElementById('show-signup-btn').addEventListener('click', () => {
+  document.getElementById('signin-form').style.display = 'none';
+  document.getElementById('signup-form').style.display = 'block';
+});
+
+document.getElementById('show-signin-btn').addEventListener('click', () => {
+  document.getElementById('signup-form').style.display = 'none';
+  document.getElementById('signin-form').style.display = 'block';
+});
+
+document.getElementById('signin-btn').addEventListener('click', async () => {
+  const email = document.getElementById('signin-email').value.trim();
+  const password = document.getElementById('signin-password').value;
+  const errEl = document.getElementById('signin-error');
+  errEl.textContent = '';
+
+  if (!email || !password) { errEl.textContent = 'Please fill in all fields'; return; }
+
+  try {
+    await signIn(email, password);
+    showScreen('creator-screen');
+    loadCharacterCreator();
+  } catch (e) {
+    errEl.textContent = e.message || 'Sign in failed';
+  }
+});
+
+document.getElementById('signup-btn').addEventListener('click', async () => {
+  const email = document.getElementById('signup-email').value.trim();
+  const password = document.getElementById('signup-password').value;
+  const name = document.getElementById('signup-name').value.trim();
+  const errEl = document.getElementById('signup-error');
+  errEl.textContent = '';
+
+  if (!email || !password || !name) { errEl.textContent = 'Please fill in all fields'; return; }
+  if (password.length < 8) { errEl.textContent = 'Password must be 8+ characters'; return; }
+
+  try {
+    await signUp(email, password, name);
+    document.getElementById('signup-form').style.display = 'none';
+    document.getElementById('signin-form').style.display = 'block';
+    document.getElementById('signin-email').value = email;
+    errEl.textContent = '';
+    const successEl = document.createElement('div');
+    successEl.className = 'success';
+    successEl.textContent = 'Account created! Please sign in.';
+    errEl.parentNode.insertBefore(successEl, errEl);
+  } catch (e) {
+    errEl.textContent = e.message || 'Sign up failed';
+  }
+});
+
+// ============================================================
+// Character Creator
+// ============================================================
+async function loadCharacterCreator() {
+  // Try to load from CloudFront, fall back to defaults
+  let manifest;
+  try {
+    const res = await fetch(`${ASSET_BASE}/manifest.json`);
+    if (res.ok) manifest = await res.json();
+  } catch {
+    // Use inline defaults
+  }
+
+  if (!manifest) {
+    manifest = {
+      characterOptions: {
+        hairStyles: ['Short', 'Long', 'Curly', 'Mohawk', 'Ponytail', 'Bald'],
+        hairColors: ['Brown', 'Blonde', 'Red', 'Black', 'White', 'Blue', 'Pink'],
+        skinTones: ['Light', 'Fair', 'Medium', 'Tan', 'Dark', 'Deep'],
+        outfits: ['T-shirt', 'Hoodie', 'Dress', 'Overalls', 'Jacket', 'Suit'],
+        outfitColors: ['Red', 'Blue', 'Green', 'Yellow', 'Purple', 'White', 'Black', 'Pink'],
+        accessories: ['None', 'Glasses', 'Hat', 'Scarf', 'Backpack', 'Headphones']
+      }
+    };
+  }
+
+  gameState.manifest = manifest;
+  const opts = manifest.characterOptions;
+
+  populateSelect('hair-style', opts.hairStyles);
+  populateSelect('hair-color', opts.hairColors);
+  populateSelect('skin-tone', opts.skinTones);
+  populateSelect('outfit', opts.outfits);
+  populateSelect('outfit-color', opts.outfitColors);
+  populateSelect('accessory', opts.accessories);
+}
+
+function populateSelect(id, options) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = '';
+  options.forEach(opt => {
+    const o = document.createElement('option');
+    o.value = opt;
+    o.textContent = opt;
+    sel.appendChild(o);
+  });
+}
+
+document.getElementById('create-char-btn').addEventListener('click', async () => {
+  const payload = {
+    hairStyle: document.getElementById('hair-style').value,
+    hairColor: document.getElementById('hair-color').value,
+    skinTone: document.getElementById('skin-tone').value,
+    outfit: document.getElementById('outfit').value,
+    outfitColor: document.getElementById('outfit-color').value,
+    accessory: document.getElementById('accessory').value
+  };
+
+  gameState.characterChoices = payload;
+  gameState.displayName = authState.displayName || authState.email.split('@')[0];
+
+  // Connect to WS and send create_character
+  connectWebSocket(() => {
+    showLoading('Creating your character...');
+    sendWS({ type: 'create_character', payload });
+  });
+});
+
+// ============================================================
+// WebSocket
+// ============================================================
+function connectWebSocket(onOpen) {
+  if (gameState.ws && gameState.ws.readyState === WebSocket.OPEN) {
+    onOpen && onOpen();
+    return;
+  }
+
+  const wsUrl = `${WS_PROTOCOL}//${ALB_DNS}/ws?token=${encodeURIComponent(authState.jwt)}`;
+  const ws = new WebSocket(wsUrl);
+  gameState.ws = ws;
+
+  ws.onopen = () => {
+    console.log('WS connected');
+    onOpen && onOpen();
+  };
+
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    handleWSMessage(msg);
+  };
+
+  ws.onclose = (e) => {
+    console.log('WS closed', e.code, e.reason);
+    if (e.code === 4001) {
+      alert('Authentication failed. Please sign in again.');
+      showScreen('auth-screen');
+    }
+  };
+
+  ws.onerror = (e) => {
+    console.error('WS error', e);
+  };
+}
+
+function sendWS(msg) {
+  if (gameState.ws && gameState.ws.readyState === WebSocket.OPEN) {
+    gameState.ws.send(JSON.stringify(msg));
+  } else {
+    console.warn('WS not connected, queuing:', msg);
+  }
+}
+
+function handleWSMessage(msg) {
+  switch (msg.type) {
+    case 'room_state':
+      handleRoomState(msg);
+      break;
+    case 'player_joined':
+      handlePlayerJoined(msg);
+      break;
+    case 'player_left':
+      handlePlayerLeft(msg);
+      break;
+    case 'player_moved':
+      handlePlayerMoved(msg);
+      break;
+    case 'character_generating':
+      showLoading('Creating your character... AI is generating your avatar!');
+      break;
+    case 'character_created':
+      handleCharacterCreated(msg);
+      break;
+    case 'chat_message':
+      handleChatMessage(msg);
+      break;
+    case 'error':
+      console.error('Server error:', msg.message);
+      if (msg.message && msg.message.includes('character')) {
+        hideLoading();
+        document.getElementById('creator-error').textContent = msg.message;
+      }
+      break;
+    default:
+      console.log('Unknown message type:', msg.type, msg);
+  }
+}
+
+function handleCharacterCreated(msg) {
+  gameState.avatarUrl = msg.avatarUrl;
+  authState.playerId = msg.playerId || authState.playerId;
+  hideLoading();
+
+  // Preload avatar before transitioning
+  const img = new Image();
+  img.src = msg.avatarUrl;
+  img.onload = () => {
+    gameState.avatarUrl = msg.avatarUrl;
+    // Update avatar preview
+    document.getElementById('avatar-preview').src = msg.avatarUrl;
+    // Small delay to show the created avatar
+    setTimeout(() => {
+      showScreen('game-screen');
+      initGame();
+      // Join default room
+      sendWS({ type: 'join_room', payload: { roomId: 'lobby' } });
+    }, 500);
+  };
+  img.onerror = () => {
+    // Proceed anyway
+    setTimeout(() => {
+      showScreen('game-screen');
+      initGame();
+      sendWS({ type: 'join_room', payload: { roomId: 'lobby' } });
+    }, 500);
+  };
+}
+
+function handleRoomState(msg) {
+  gameState.players = {};
+  gameState.furniture = msg.furniture || {};
+  gameState.tiles = msg.tiles || {};
+
+  if (msg.players) {
+    msg.players.forEach(p => {
+      gameState.players[p.playerId] = p;
+    });
+  }
+
+  gameState.self = gameState.players[authState.playerId] || null;
+  render();
+}
+
+function handlePlayerJoined(msg) {
+  gameState.players[msg.player.playerId] = msg.player;
+  render();
+}
+
+function handlePlayerLeft(msg) {
+  delete gameState.players[msg.playerId];
+  spriteCache.delete(msg.playerId);
+  render();
+}
+
+function handlePlayerMoved(msg) {
+  const p = gameState.players[msg.playerId];
+  if (p) {
+    p.x = msg.x;
+    p.y = msg.y;
+    p.direction = msg.direction || p.direction;
+    p.pose = msg.pose || p.pose;
+    if (msg.playerId !== authState.playerId) {
+      onPlayerMoved(msg.playerId);
+    }
+    render();
+  }
+}
+
+function handleChatMessage(msg) {
+  const el = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg';
+  div.innerHTML = `<span class="name">${escapeHtml(msg.displayName || msg.playerId)}:</span> <span class="text">${escapeHtml(msg.text)}</span>`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+// ============================================================
+// Sprite Sheet Renderer
+// ============================================================
+class PlayerSprite {
+  constructor(avatarUrl) {
+    this.image = new Image();
+    this.image.src = avatarUrl;
+    this.loaded = false;
+    this.image.onload = () => { this.loaded = true; };
+    this.walkCycle = ['idle', 'stepA', 'idle', 'stepB'];
+    this.walkIndex = 0;
+    this.currentPose = 'idle';
+    this.walkTimer = null;
+  }
+
+  onMove() {
+    this.walkIndex = (this.walkIndex + 1) % this.walkCycle.length;
+    this.currentPose = this.walkCycle[this.walkIndex];
+    clearTimeout(this.walkTimer);
+    this.walkTimer = setTimeout(() => {
+      this.currentPose = 'idle';
+      this.walkIndex = 0;
+    }, 300);
+  }
+
+  getCol(serverPose) {
+    if (serverPose === 'sitting') return POSE_COL.sit;
+    return POSE_COL[this.currentPose] || POSE_COL.idle;
+  }
+}
+
+function getOrCreateSprite(playerId, avatarUrl) {
+  if (!spriteCache.has(playerId)) {
+    spriteCache.set(playerId, new PlayerSprite(avatarUrl));
+  }
+  return spriteCache.get(playerId);
+}
+
+function onPlayerMoved(playerId) {
+  const sprite = spriteCache.get(playerId);
+  if (sprite) sprite.onMove();
+}
+
+function drawPlayer(ctx, player, tileSize) {
+  if (!player.avatarUrl) return;
+
+  const sprite = getOrCreateSprite(player.playerId, player.avatarUrl);
+  if (!sprite.loaded) {
+    // Loading fallback
+    ctx.fillStyle = '#999';
+    ctx.fillRect(player.x * tileSize + 8, player.y * tileSize + 8, tileSize - 16, tileSize - 16);
+    return;
+  }
+
+  const row = DIR_ROW[player.direction] ?? 0;
+  const col = sprite.getCol(player.pose);
+
+  ctx.drawImage(
+    sprite.image,
+    col * CELL, row * CELL, CELL, CELL,
+    player.x * tileSize, player.y * tileSize,
+    tileSize, tileSize
+  );
+
+  // Name label
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 10px sans-serif';
+  ctx.textAlign = 'center';
+  const label = player.displayName || player.playerId;
+  const labelX = player.x * tileSize + tileSize / 2;
+  const labelY = player.y * tileSize - 4;
+
+  // Background for label
+  const metrics = ctx.measureText(label);
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.fillRect(labelX - metrics.width / 2 - 2, labelY - 10, metrics.width + 4, 12);
+
+  ctx.fillStyle = '#000';
+  ctx.fillText(label, labelX, labelY);
+}
+
+// ============================================================
+// Canvas / Game Rendering
+// ============================================================
+let canvas, ctx;
+let furnitureImages = {};
+let tileImages = {};
+let animationFrameId = null;
+let moveQueue = [];
+let lastMoveTime = 0;
+const MOVE_COOLDOWN = 200;
+
+function initGame() {
+  canvas = document.getElementById('game-canvas');
+  ctx = canvas.getContext('2d');
+  canvas.addEventListener('click', handleCanvasClick);
+  document.addEventListener('keydown', handleKeyDown);
+  renderLoop();
+}
+
+function renderLoop() {
+  render();
+  animationFrameId = requestAnimationFrame(renderLoop);
+}
+
+function render() {
+  if (!canvas || !ctx) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const manifest = gameState.manifest;
+  const gridSize = manifest?.gridSize || GRID_SIZE;
+  const tileSize = manifest?.tileSize || TILE_SIZE;
+
+  // Draw floor tiles
+  drawFloor(ctx, gridSize, tileSize);
+
+  // Draw wall tiles around perimeter
+  drawWalls(ctx, gridSize, tileSize);
+
+  // Draw furniture (sorted by zLayer)
+  drawFurniture(ctx, tileSize);
+
+  // Draw other players
+  Object.values(gameState.players).forEach(p => {
+    if (p.playerId !== authState.playerId) {
+      drawPlayer(ctx, p, tileSize);
+    }
+  });
+
+  // Draw self on top
+  if (gameState.self && gameState.avatarUrl) {
+    const selfSprite = getOrCreateSprite(authState.playerId, gameState.avatarUrl);
+    if (selfSprite.loaded) {
+      const row = DIR_ROW[gameState.direction] ?? 0;
+      const col = selfSprite.getCol(gameState.pose);
+      ctx.drawImage(
+        selfSprite.image,
+        col * CELL, row * CELL, CELL, CELL,
+        gameState.self.x * tileSize, gameState.self.y * tileSize,
+        tileSize, tileSize
+      );
+      // Name label
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      const label = gameState.displayName || authState.playerId;
+      const labelX = gameState.self.x * tileSize + tileSize / 2;
+      const labelY = gameState.self.y * tileSize - 4;
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      const metrics = ctx.measureText(label);
+      ctx.fillRect(labelX - metrics.width / 2 - 2, labelY - 10, metrics.width + 4, 12);
+      ctx.fillStyle = '#000';
+      ctx.fillText(label, labelX, labelY);
+    }
+  }
+
+  updatePlayerList();
+}
+
+function drawFloor(ctx, gridSize, tileSize) {
+  // Draw wood floor pattern using tiles from manifest or fallback
+  const floorSprite = gameState.tiles?.floor || (gameState.manifest?.tiles?.floor);
+
+  if (floorSprite && !tileImages['floor']) {
+    const img = new Image();
+    img.src = ASSET_BASE + floorSprite;
+    img.onload = () => { tileImages['floor'] = img; };
+  }
+
+  const floorImg = tileImages['floor'];
+
+  for (let y = 0; y < gridSize; y++) {
+    for (let x = 0; x < gridSize; x++) {
+      if (floorImg && floorImg.complete) {
+        ctx.drawImage(floorImg, x * tileSize, y * tileSize, tileSize, tileSize);
+      } else {
+        // Fallback: checkerboard pattern
+        ctx.fillStyle = ((x + y) % 2 === 0) ? '#8B7355' : '#A08060';
+        ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+      }
+    }
+  }
+}
+
+function drawWalls(ctx, gridSize, tileSize) {
+  const wallSprite = gameState.tiles?.wall || (gameState.manifest?.tiles?.wall);
+
+  if (wallSprite && !tileImages['wall']) {
+    const img = new Image();
+    img.src = ASSET_BASE + wallSprite;
+    img.onload = () => { tileImages['wall'] = img; };
+  }
+
+  const wallImg = tileImages['wall'];
+
+  // Draw wall tiles around the perimeter (top row and left/right columns)
+  for (let x = 0; x < gridSize; x++) {
+    // Top wall
+    if (wallImg && wallImg.complete) {
+      ctx.drawImage(wallImg, x * tileSize, 0, tileSize, tileSize);
+    } else {
+      ctx.fillStyle = '#4a4a6a';
+      ctx.fillRect(x * tileSize, 0, tileSize, tileSize);
+    }
+  }
+
+  // Side walls (left and right columns, skip corners)
+  for (let y = 1; y < gridSize - 1; y++) {
+    // Left wall
+    if (wallImg && wallImg.complete) {
+      ctx.drawImage(wallImg, 0, y * tileSize, tileSize, tileSize);
+    } else {
+      ctx.fillStyle = '#4a4a6a';
+      ctx.fillRect(0, y * tileSize, tileSize, tileSize);
+    }
+    // Right wall
+    if (wallImg && wallImg.complete) {
+      ctx.drawImage(wallImg, (gridSize - 1) * tileSize, y * tileSize, tileSize, tileSize);
+    } else {
+      ctx.fillStyle = '#4a4a6a';
+      ctx.fillRect((gridSize - 1) * tileSize, y * tileSize, tileSize, tileSize);
+    }
+  }
+}
+
+function drawFurniture(ctx, tileSize) {
+  const furniture = gameState.furniture;
+  const manifest = gameState.manifest;
+
+  // Sort by zLayer
+  const sorted = Object.entries(furniture).sort((a, b) => {
+    const za = manifest?.furniture?.[a[0]]?.zLayer ?? 0;
+    const zb = manifest?.furniture?.[b[0]]?.zLayer ?? 0;
+    return za - zb;
+  });
+
+  sorted.forEach(([key, item]) => {
+    const def = manifest?.furniture?.[key];
+    if (!def) return;
+
+    if (!furnitureImages[key]) {
+      const img = new Image();
+      img.src = ASSET_BASE + def.sprite;
+      img.onload = () => { furnitureImages[key] = img; };
+    }
+
+    const img = furnitureImages[key];
+    if (img && img.complete) {
+      const gw = def.gridWidth || 1;
+      const gh = def.gridHeight || 1;
+      ctx.drawImage(img, item.x * tileSize, item.y * tileSize, gw * tileSize, gh * tileSize);
+    } else {
+      // Fallback rectangle
+      const gw = def.gridWidth || 1;
+      const gh = def.gridHeight || 1;
+      ctx.fillStyle = '#666';
+      ctx.fillRect(item.x * tileSize, item.y * tileSize, gw * tileSize, gh * tileSize);
+    }
+  });
+}
+
+function updatePlayerList() {
+  const el = document.getElementById('player-list');
+  const players = Object.values(gameState.players);
+  el.textContent = players.length + ' player(s) in room';
+}
+
+// ============================================================
+// Controls
+// ============================================================
+function handleKeyDown(e) {
+  if (document.getElementById('chat-input') === document.activeElement) return;
+
+  const dirMap = {
+    ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right'
+  };
+
+  if (dirMap[e.key]) {
+    e.preventDefault();
+    tryMove(dirMap[e.key]);
+  }
+}
+
+function handleCanvasClick(e) {
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - rect.left) / TILE_SIZE);
+  const y = Math.floor((e.clientY - rect.top) / TILE_SIZE);
+
+  // Check if clicking on a chair
+  const furniture = gameState.furniture;
+  for (const [key, item] of Object.entries(furniture)) {
+    const def = gameState.manifest?.furniture?.[key];
+    if (def && (def.sprite || '').includes('chair')) {
+      if (item.x === x && item.y === y) {
+        sendWS({ type: 'sit', payload: { x, y, furnitureKey: key } });
+        return;
+      }
+    }
+  }
+
+  // Move to clicked tile
+  tryMoveTo(x, y);
+}
+
+function tryMove(direction) {
+  const now = Date.now();
+  if (now - lastMoveTime < MOVE_COOLDOWN) return;
+  lastMoveTime = now;
+
+  const self = gameState.self;
+  if (!self) return;
+
+  const dirDelta = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  const [dx, dy] = dirDelta[direction];
+  const newX = Math.max(0, Math.min(GRID_SIZE - 1, self.x + dx));
+  const newY = Math.max(0, Math.min(GRID_SIZE - 1, self.y + dy));
+
+  gameState.direction = direction;
+
+  // Trigger walk animation
+  const sprite = getOrCreateSprite(authState.playerId, gameState.avatarUrl);
+  if (sprite) sprite.onMove();
+
+  sendWS({ type: 'move', payload: { x: newX, y: newY, direction } });
+
+  gameState.self.x = newX;
+  gameState.self.y = newY;
+  gameState.self.direction = direction;
+  render();
+}
+
+function tryMoveTo(x, y) {
+  const now = Date.now();
+  if (now - lastMoveTime < MOVE_COOLDOWN) return;
+  lastMoveTime = now;
+
+  const self = gameState.self;
+  if (!self) return;
+
+  x = Math.max(0, Math.min(GRID_SIZE - 1, x));
+  y = Math.max(0, Math.min(GRID_SIZE - 1, y));
+
+  // Determine direction
+  let direction = gameState.direction;
+  if (x < self.x) direction = 'left';
+  else if (x > self.x) direction = 'right';
+  else if (y < self.y) direction = 'up';
+  else if (y > self.y) direction = 'down';
+
+  gameState.direction = direction;
+
+  const sprite = getOrCreateSprite(authState.playerId, gameState.avatarUrl);
+  if (sprite) sprite.onMove();
+
+  sendWS({ type: 'move', payload: { x, y, direction } });
+
+  gameState.self.x = x;
+  gameState.self.y = y;
+  gameState.self.direction = direction;
+  render();
+}
+
+// Chat
+document.getElementById('chat-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  sendWS({ type: 'chat', payload: { text } });
+  input.value = '';
+});
+
+// Stand up (press arrow or click away from chair)
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' || e.key === ' ') {
+    sendWS({ type: 'stand', payload: {} });
+  }
+});
+
+// ============================================================
+// Standalone test: if opened directly with ?test, use mock data
+// ============================================================
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('test') === '1') {
+    // Mock manifest for testing without backend
+    gameState.manifest = {
+      gridSize: 12,
+      tileSize: 32,
+      characterOptions: {
+        hairStyles: ['Short', 'Long', 'Curly'],
+        hairColors: ['Brown', 'Blonde', 'Red'],
+        skinTones: ['Light', 'Medium', 'Dark'],
+        outfits: ['T-shirt', 'Hoodie'],
+        outfitColors: ['Red', 'Blue', 'Green'],
+        accessories: ['None', 'Glasses']
+      },
+      tiles: { floor: null, wall: null },
+      furniture: {
+        chair_wood_01: { sprite: null, gridWidth: 1, gridHeight: 1, zLayer: 2 }
+      }
+    };
+    gameState.players = {};
+    gameState.furniture = {
+      chair_wood_01: { x: 5, y: 5 }
+    };
+    gameState.avatarUrl = null;
+
+    // Skip auth in test mode
+    document.getElementById('signin-btn').click = () => {};
+    showScreen('game-screen');
+    initGame();
+  }
+})();
+</script>
+</body>
+</html>
