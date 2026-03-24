@@ -1,0 +1,13 @@
+# Build outputs
+cdk.out/
+node_modules/
+
+# OS
+.DS_Store
+
+# Environment
+.env
+.env.local
+
+# CDK context
+infra/cdk.context.json
