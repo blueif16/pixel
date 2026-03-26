@@ -103,32 +103,11 @@
     <h1>Create Your Character</h1>
     <img id="avatar-preview" class="avatar-preview" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" alt="Avatar preview">
     <div id="character-creator">
-      <div class="creator-grid">
-        <div class="form-group">
-          <label>Hair Style</label>
-          <select id="hair-style"></select>
-        </div>
-        <div class="form-group">
-          <label>Hair Color</label>
-          <select id="hair-color"></select>
-        </div>
-        <div class="form-group full">
-          <label>Skin Tone</label>
-          <select id="skin-tone"></select>
-        </div>
-        <div class="form-group">
-          <label>Outfit</label>
-          <select id="outfit"></select>
-        </div>
-        <div class="form-group">
-          <label>Outfit Color</label>
-          <select id="outfit-color"></select>
-        </div>
-        <div class="form-group full">
-          <label>Accessory</label>
-          <select id="accessory"></select>
-        </div>
+      <div class="form-group full">
+        <label>Describe your character</label>
+        <input type="text" id="character-description" placeholder="e.g. spiky blue hair, red hoodie, glasses" maxlength="200">
       </div>
+      <p style="font-size:12px;color:#888;margin-bottom:12px;">e.g. "spiky blue hair, red hoodie" or "long pink hair, green dress"</p>
       <button id="create-char-btn">Create Character</button>
       <div id="creator-error" class="error"></div>
     </div>
@@ -162,9 +141,9 @@
 // ============================================================
 // State
 // ============================================================
-const ALB_DNS = window.ALB_DNS || 'localhost:8080';
+const ALB_DNS = window.ALB_DNS || 'PixelS-Pixel-Av5cnPVBHFIm-2101309226.us-east-1.elb.amazonaws.com';
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const ASSET_BASE = window.ASSET_BASE || 'https://d1234.cloudfront.net';
+const ASSET_BASE = window.ASSET_BASE || 'https://dc9iwjwlk784c.cloudfront.net';
 
 const CELL = 32;
 const GRID_SIZE = 12;
@@ -206,64 +185,32 @@ const spriteCache = new Map();
 //   COGNITO_CLIENT_ID = 'xxxxx'
 // For now, we store JWT in memory and send it on WS connect.
 
-let COGNITO_USER_POOL_ID = window.COGNITO_USER_POOL_ID || '';
-let COGNITO_CLIENT_ID = window.COGNITO_CLIENT_ID || '';
+let COGNITO_USER_POOL_ID = window.COGNITO_USER_POOL_ID || 'us-east-1_T4Gej0pzm';
+let COGNITO_CLIENT_ID = window.COGNITO_CLIENT_ID || '5hh6ocl6llo47181epra7ombli';
 let COGNITO_REGION = window.COGNITO_REGION || 'us-east-1';
 
 // Simple auth stub that stores credentials for WS auth.
 // Real implementation would use cognito-identity-js or
 // Amazon Cognito Hosted UI via redirect.
 async function signUp(email, password, displayName) {
-  if (!COGNITO_USER_POOL_ID || !COGNITO_CLIENT_ID) {
-    // Dev mode: store credentials locally
-    authState.email = email;
-    authState.password = password;
-    authState.displayName = displayName;
-    // Generate a fake JWT for local dev (server will validate or skip)
-    authState.jwt = btoa(JSON.stringify({ sub: 'dev-' + Date.now(), email, name: displayName }));
-    authState.playerId = 'dev-' + Date.now();
-    return { success: true };
-  }
-
-  const { CognitoUserPool, CognitoUser, CognitoAttribute } = await import('./cognito-sdk.js').catch(() => {
-    throw new Error('Cognito SDK not loaded. Configure COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID');
-  });
-
-  const pool = new CognitoUserPool({ UserPoolId: COGNITO_USER_POOL_ID, ClientId: COGNITO_CLIENT_ID });
-  return new Promise((resolve, reject) => {
-    pool.signUp(email, password, [new CognitoAttribute({ Name: 'email', Value: email }), new CognitoAttribute({ Name: 'preferred_username', Value: displayName })], null, (err, result) => {
-      if (err) reject(err);
-      else resolve({ success: true, user: result.user });
-    });
-  });
+  // Dev mode — just store locally, no real signup
+  authState.email = email;
+  authState.password = password;
+  authState.displayName = displayName;
+  authState.jwt = btoa(JSON.stringify({ sub: 'dev-' + Date.now(), email, name: displayName }));
+  authState.playerId = 'dev-' + Date.now();
+  return { success: true };
 }
 
 async function signIn(email, password) {
-  if (!COGNITO_USER_POOL_ID || !COGNITO_CLIENT_ID) {
-    // Dev mode
-    authState.email = email;
-    authState.password = password;
-    authState.jwt = btoa(JSON.stringify({ sub: 'dev-' + Date.now(), email, name: email.split('@')[0] }));
-    authState.playerId = 'dev-' + Date.now();
-    return { success: true };
-  }
-
-  const { CognitoUserPool, CognitoUser, AuthenticationDetails } = await import('./cognito-sdk.js').catch(() => {
-    throw new Error('Cognito SDK not loaded');
-  });
-
-  const pool = new CognitoUserPool({ UserPoolId: COGNITO_USER_POOL_ID, ClientId: COGNITO_CLIENT_ID });
-  const user = new CognitoUser({ Username: email, Pool: pool });
-  return new Promise((resolve, reject) => {
-    user.authenticateUser(new AuthenticationDetails({ Username: email, Password: password }), {
-      onSuccess: (result) => {
-        authState.jwt = result.getIdToken().getJwtToken();
-        authState.playerId = user.getUsername();
-        resolve({ success: true });
-      },
-      onFailure: reject
-    });
-  });
+  // Dev mode auth — generates fake JWT for local testing
+  // Real Cognito auth requires hosted UI or the SDK — for now use dev mode
+  authState.email = email;
+  authState.password = password;
+  authState.displayName = email.split('@')[0];
+  authState.jwt = btoa(JSON.stringify({ sub: 'dev-' + Date.now(), email, name: email.split('@')[0] }));
+  authState.playerId = 'dev-' + Date.now();
+  return { success: true };
 }
 
 function getAuthHeaders() {
@@ -346,37 +293,13 @@ document.getElementById('signup-btn').addEventListener('click', async () => {
 // Character Creator
 // ============================================================
 async function loadCharacterCreator() {
-  // Try to load from CloudFront, fall back to defaults
-  let manifest;
+  // Try to load manifest from CloudFront for tiles/furniture
   try {
     const res = await fetch(`${ASSET_BASE}/manifest.json`);
-    if (res.ok) manifest = await res.json();
+    if (res.ok) gameState.manifest = await res.json();
   } catch {
-    // Use inline defaults
+    // No manifest yet — fallback rendering will be used
   }
-
-  if (!manifest) {
-    manifest = {
-      characterOptions: {
-        hairStyles: ['Short', 'Long', 'Curly', 'Mohawk', 'Ponytail', 'Bald'],
-        hairColors: ['Brown', 'Blonde', 'Red', 'Black', 'White', 'Blue', 'Pink'],
-        skinTones: ['Light', 'Fair', 'Medium', 'Tan', 'Dark', 'Deep'],
-        outfits: ['T-shirt', 'Hoodie', 'Dress', 'Overalls', 'Jacket', 'Suit'],
-        outfitColors: ['Red', 'Blue', 'Green', 'Yellow', 'Purple', 'White', 'Black', 'Pink'],
-        accessories: ['None', 'Glasses', 'Hat', 'Scarf', 'Backpack', 'Headphones']
-      }
-    };
-  }
-
-  gameState.manifest = manifest;
-  const opts = manifest.characterOptions;
-
-  populateSelect('hair-style', opts.hairStyles);
-  populateSelect('hair-color', opts.hairColors);
-  populateSelect('skin-tone', opts.skinTones);
-  populateSelect('outfit', opts.outfits);
-  populateSelect('outfit-color', opts.outfitColors);
-  populateSelect('accessory', opts.accessories);
 }
 
 function populateSelect(id, options) {
@@ -391,22 +314,18 @@ function populateSelect(id, options) {
 }
 
 document.getElementById('create-char-btn').addEventListener('click', async () => {
-  const payload = {
-    hairStyle: document.getElementById('hair-style').value,
-    hairColor: document.getElementById('hair-color').value,
-    skinTone: document.getElementById('skin-tone').value,
-    outfit: document.getElementById('outfit').value,
-    outfitColor: document.getElementById('outfit-color').value,
-    accessory: document.getElementById('accessory').value
-  };
+  const description = document.getElementById('character-description').value.trim();
+  if (!description) {
+    document.getElementById('creator-error').textContent = 'Please describe your character';
+    return;
+  }
 
-  gameState.characterChoices = payload;
   gameState.displayName = authState.displayName || authState.email.split('@')[0];
 
   // Connect to WS and send create_character
   connectWebSocket(() => {
-    showLoading('Creating your character...');
-    sendWS({ type: 'create_character', payload });
+    showLoading('Creating your character... AI is generating your avatar (~15s)...');
+    sendWS({ type: 'create_character', payload: { description } });
   });
 });
 

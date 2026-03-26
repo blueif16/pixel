@@ -6,6 +6,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
@@ -203,6 +204,13 @@ export class PixelSocialStack extends Stack {
     });
     taskRole.attachInlinePolicy(dynamoPolicy);
 
+    // Import the existing ECR repository
+    const ecrRepo = ecr.Repository.fromRepositoryArn(
+      this,
+      'PixelSocialECR',
+      'arn:aws:ecr:us-east-1:911319296449:repository/pixel-social-server',
+    );
+
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'PixelSocialTask', {
       family: 'pixel-social-server',
       cpu: 512,
@@ -211,9 +219,8 @@ export class PixelSocialStack extends Stack {
       taskRole: taskRole,
     });
 
-    // Placeholder container — replace image with actual ECR repo
     const container = taskDefinition.addContainer('game-server', {
-      image: ecs.ContainerImage.fromRegistry('placeholder'), // TODO: Replace with {ecr-repo}:latest
+      image: ecs.ContainerImage.fromEcrRepository(ecrRepo, 'latest'),
       portMappings: [{ containerPort: 3000 }],
       environment: {
         COGNITO_USER_POOL_ID: userPool.userPoolId,
@@ -293,8 +300,8 @@ export class PixelSocialStack extends Stack {
       environment: {
         S3_BUCKET: assetBucket.bucketName,
         CLOUDFRONT_DOMAIN: distribution.distributionDomainName,
-        IMAGE_GEN_API_KEY: 'TODO_REPLACE',
-        IMAGE_GEN_PROVIDER: 'openai',
+        GOOGLE_API_KEY: 'TODO_REPLACE',
+        IMAGE_GEN_MODEL: 'gemini-2.0-flash-exp',
       },
     });
 

@@ -4,11 +4,14 @@ const { sendTo } = require('../broadcast');
 const socialEngine = require('../modules/socialEngine');
 
 async function handleCreateCharacter(conn, payload) {
-  const { hairStyle, hairColor, skinTone, outfit, outfitColor, accessory } = payload;
-
-  const description = buildCharacterDescription({
-    hairStyle, hairColor, skinTone, outfit, outfitColor, accessory
-  });
+  // Accept direct description text (simple mode) or structured fields (legacy)
+  let description = payload.description;
+  if (!description) {
+    const { hairStyle, hairColor, skinTone, outfit, outfitColor, accessory } = payload;
+    description = buildCharacterDescription({ hairStyle, hairColor, skinTone, outfit, outfitColor, accessory });
+  }
+  // Sanitize: cap at 200 chars, wrap with guardrails
+  description = `A young person, ${description.slice(0, 200)}`;
 
   sendTo(conn, { type: 'character_generating', payload: { message: 'Creating your character...' } });
 
