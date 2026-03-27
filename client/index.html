@@ -134,6 +134,24 @@
   .grid-empty { grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 12px; line-height: 1.8; }
   .grid-loading { grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-dim); font-size: 11px; }
 
+  /* "just created" glow */
+  .char-cell.new-char {
+    border-color: var(--warm);
+    box-shadow: 0 0 14px rgba(218,165,32,0.45), inset 0 0 8px rgba(218,165,32,0.1);
+    animation: newPulse 2s ease-in-out 3;
+  }
+  .char-cell.new-char .new-badge {
+    position: absolute; top: -1px; right: -1px;
+    background: var(--warm); color: var(--bg);
+    font-size: 7px; font-family: 'Press Start 2P', monospace;
+    padding: 2px 5px; border-radius: 0 6px 0 6px;
+    letter-spacing: 0.5px;
+  }
+  @keyframes newPulse {
+    0%, 100% { box-shadow: 0 0 14px rgba(218,165,32,0.45); }
+    50% { box-shadow: 0 0 22px rgba(218,165,32,0.7), 0 0 40px rgba(218,165,32,0.2); }
+  }
+
   /* gen overlay */
   .gen-overlay { display: none; position: fixed; inset: 0; background: rgba(12,14,22,0.92); z-index: 100; flex-direction: column; align-items: center; justify-content: center; gap: 20px; }
   .gen-overlay.active { display: flex; }
@@ -639,6 +657,55 @@ async function fetchCharacters() {
 }
 
 // =================================================================
+// REBUILD GRID (from in-memory characters array, no API call)
+// =================================================================
+function rebuildGrid() {
+  const grid = document.getElementById('char-grid');
+  if (!characters.length) {
+    grid.innerHTML = '<div class="grid-empty">No characters yet. Generate some or use the input above.</div>';
+    return;
+  }
+  grid.innerHTML = '';
+  for (const char of characters) {
+    const cell = document.createElement('div');
+    cell.className = 'char-cell';
+    if (char === selectedChar) cell.classList.add('selected');
+    if (char._isNew) cell.classList.add('new-char');
+    cell.title = char.id;
+    const cvs = document.createElement('canvas');
+    cvs.width = CELL; cvs.height = CELL;
+    cell.appendChild(cvs);
+    if (char._isNew) {
+      const badge = document.createElement('div');
+      badge.className = 'new-badge';
+      badge.textContent = 'NEW';
+      cell.appendChild(badge);
+    }
+    const label = document.createElement('div');
+    label.className = 'char-id';
+    label.textContent = char.id;
+    cell.appendChild(label);
+    cell.addEventListener('click', () => selectCharacter(char, cell));
+    grid.appendChild(cell);
+
+    if (char._img) {
+      cvs.getContext('2d').drawImage(char._img, 0, 0, CELL, CELL, 0, 0, CELL, CELL);
+    } else {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => { cvs.getContext('2d').drawImage(img, 0, 0, CELL, CELL, 0, 0, CELL, CELL); char._img = img; };
+      img.onerror = () => {
+        const ctx = cvs.getContext('2d');
+        ctx.fillStyle = '#ff6b6b33'; ctx.fillRect(0,0,CELL,CELL);
+        ctx.fillStyle = '#ff6b6b'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('ERR', CELL/2, CELL/2+3);
+      };
+      img.src = char.url;
+    }
+  }
+}
+
+// =================================================================
 // SELECT → ENTER ROOM
 // =================================================================
 function selectCharacter(char, cellEl) {
@@ -672,35 +739,22 @@ async function startGenerate() {
     sec++;
     document.getElementById('gen-time').textContent = sec + 's';
     if (sec === 3)  document.getElementById('gen-status').textContent = 'AI generating sprite sheet…';
-    if (sec === 15) document.getElementById('gen-status').textContent = 'Still working…';
-    if (sec === 25) document.getElementById('gen-status').textContent = 'Processing frames…';
+    if (sec === 20) document.getElementById('gen-status').textContent = 'Still rendering…';
+    if (sec === 40) document.getElementById('gen-status').textContent = 'Removing background…';
+    if (sec === 60) document.getElementById('gen-status').textContent = 'Assembling frames…';
+    if (sec === 80) document.getElementById('gen-status').textContent = 'Almost there…';
+    if (sec === 100) document.getElementById('gen-status').textContent = 'Finishing up…';
   }, 1000);
   genController = new AbortController();
   document.getElementById('gen-btn').disabled = true;
 
   try {
-    const resp = await fetch(CFG.generateApi, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: desc }),
-      signal: genController.signal,
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
-    const data = await resp.json();
-    if (!data.avatarUrl) throw new Error('No avatarUrl in response');
-    log(`Generated: ${data.avatarUrl}`, 'ok');
-    document.getElementById('gen-status').textContent = 'Loading sprite…';
-    const img = await loadImage(data.avatarUrl);
-    const newChar = { id: data.avatarUrl.split('/').pop().replace('.png',''), url: data.avatarUrl, _img: img };
-    characters.unshift(newChar);
-    selectedChar = newChar;
-    clearInterval(genTimer); overlay.classList.remove('active');
-    document.getElementById('gen-btn').disabled = false;
-    enterRoom(img);
+    if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error('Not connected');
+    ws.send(JSON.stringify({ type: 'create_character', payload: { description: desc } }));
   } catch (err) {
     clearInterval(genTimer); overlay.classList.remove('active');
     document.getElementById('gen-btn').disabled = false;
-    log(err.name === 'AbortError' ? 'Cancelled' : `Failed: ${err.message}`, 'error');
+    log(`Failed: ${err.message}`, 'error');
   }
 }
 function cancelGenerate() {
@@ -741,12 +795,12 @@ function enterGame() {
   document.getElementById('room-label').textContent = 'LIVE';
   document.getElementById('room-label').className = 'room-label live';
   log('Live mode', 'ok');
-  if (CFG.wsUrl) connectWS();
+  if (authState.jwt) connectWS();
 }
 function connectWS() {
   try {
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${WS_PROTOCOL}//${CFG.wsUrl.replace('wss://','').replace('ws://','')}/ws?token=${encodeURIComponent(authState.jwt)}`;
+    const wsUrl = `${WS_PROTOCOL}//${window.location.host}/ws?token=${encodeURIComponent(authState.jwt)}`;
     ws = new WebSocket(wsUrl);
     ws.onopen = () => log('WebSocket connected', 'ok');
     ws.onmessage = (e) => {
@@ -776,7 +830,15 @@ function handleWSMessage(msg) {
       gameState.self = gameState.players[authState.playerId] || null;
       break;
     case 'player_joined':
-      gameState.players[msg.player.playerId] = msg.player;
+      gameState.players[msg.playerId] = {
+        playerId: msg.playerId,
+        displayName: msg.displayName,
+        x: msg.x,
+        y: msg.y,
+        direction: msg.direction || 'down',
+        pose: msg.pose || 'standing',
+        avatarUrl: msg.avatarUrl,
+      };
       break;
     case 'player_left':
       delete gameState.players[msg.playerId];
@@ -792,8 +854,21 @@ function handleWSMessage(msg) {
       }
       break;
     case 'character_created':
-      gameState.avatarUrl = msg.avatarUrl;
-      authState.playerId = msg.playerId || authState.playerId;
+      clearInterval(genTimer);
+      document.getElementById('gen-overlay').classList.remove('active');
+      document.getElementById('gen-btn').disabled = false;
+      gameState.avatarUrl = msg.payload.avatarUrl;
+      authState.playerId = msg.payload.playerId || authState.playerId;
+      log(`Generated: ${msg.payload.avatarUrl}`, 'ok');
+      (async () => {
+        document.getElementById('gen-status').textContent = 'Loading sprite…';
+        const img = await loadImage(msg.payload.avatarUrl);
+        const newChar = { id: msg.payload.avatarUrl.split('/').pop().replace('.png',''), url: msg.payload.avatarUrl, _img: img, _isNew: true };
+        characters.unshift(newChar);
+        selectedChar = newChar;
+        rebuildGrid();
+        enterRoom(img);
+      })();
       break;
     case 'chat_message':
       handleChatMessage(msg);
@@ -1195,7 +1270,7 @@ connectWS = function() {
   ws.onopen = () => {
     _origOnOpen && _origOnOpen();
     if (ws?.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'join_room', payload: { roomId: 'lobby' } }));
+      ws.send(JSON.stringify({ type: 'join_room', payload: { roomId: 'lobby', avatarUrl: gameState.avatarUrl || selectedChar?.url || '' } }));
       // Transition to game screen after brief delay
       setTimeout(() => {
         showScreen('game-screen');

@@ -9,10 +9,12 @@ const handlers = {
   join_room: handleJoinRoom,
   leave_room: handleLeaveRoom,
   move: handleMove,
+  // B — furniture CRUD: plug handlePlaceFurniture etc. into decorEngine
   place_furniture: handlePlaceFurniture,
   move_furniture: handleMoveFurniture,
   rotate_furniture: handleRotateFurniture,
   remove_furniture: handleRemoveFurniture,
+  // C — social: plug handleSit/handleStand/handleChat etc. into socialEngine
   sit: handleSit,
   stand: handleStand,
   chat: handleChat,
