@@ -2,10 +2,12 @@ const { handleJoinRoom, handleLeaveRoom, handleMove } = require('./handlers/room
 const { handlePlaceFurniture, handleMoveFurniture, handleRotateFurniture, handleRemoveFurniture } = require('./handlers/furniture');
 const { handleSit, handleStand, handleChat, handleAddFriend, handleRemoveFriend } = require('./handlers/social');
 const { handleCreateCharacter } = require('./handlers/character');
+const { handleGetOnlinePlayers } = require('./handlers/online');
 const { sendTo } = require('./broadcast');
 
 const handlers = {
   create_character: handleCreateCharacter,
+  get_online_players: handleGetOnlinePlayers,
   join_room: handleJoinRoom,
   leave_room: handleLeaveRoom,
   move: handleMove,

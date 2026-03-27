@@ -1,5 +1,5 @@
 const { joinRoom, leaveRoom, updatePlayerState, getPlayerState, getConnectionsByRoom } = require('../state');
-const { broadcastToRoom, sendTo } = require('../broadcast');
+const { broadcastToRoom, broadcastToAll, sendTo } = require('../broadcast');
 
 const SPAWN = { x: 6, y: 6 }; // matches client/rooms/default.json spawnPoint
 const ROOM_BOUNDS = { w: 12, h: 12 }; // matches default.json width/height
@@ -7,7 +7,16 @@ const ROOM_BOUNDS = { w: 12, h: 12 }; // matches default.json width/height
 async function handleJoinRoom(conn, payload) {
   const { roomId, avatarUrl } = payload;
 
+  // Auto-leave previous room so the player isn't in two rooms at once
+  const prevState = getPlayerState(conn.playerId);
+  if (prevState?.roomId && prevState.roomId !== roomId) {
+    const oldRoomId = prevState.roomId;
+    leaveRoom(conn);
+    broadcastToRoom(oldRoomId, { type: 'player_left', playerId: conn.playerId });
+  }
+
   joinRoom(conn, roomId, SPAWN.x, SPAWN.y, avatarUrl);
+  broadcastToAll({ type: 'player_room_changed', playerId: conn.playerId, displayName: conn.displayName, roomId }, conn.playerId);
 
   // Build snapshot of everyone now in the room (including the joiner)
   const players = [];

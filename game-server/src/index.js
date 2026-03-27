@@ -3,6 +3,7 @@ const { WebSocketServer } = require('ws');
 const { validateToken } = require('./auth');
 const { handleMessage } = require('./router');
 const { addConnection, removeConnection } = require('./state');
+const { broadcastToAll } = require('./broadcast');
 
 const server = http.createServer((req, res) => {
   if (req.url === '/health') {
@@ -30,6 +31,7 @@ wss.on('connection', async (ws, req) => {
 
   const conn = { ws, playerId: user.sub, displayName: user.preferred_username };
   addConnection(conn);
+  broadcastToAll({ type: 'player_online', playerId: conn.playerId, displayName: conn.displayName }, conn.playerId);
 
   ws.on('message', (raw) => {
     try {
@@ -41,6 +43,7 @@ wss.on('connection', async (ws, req) => {
   });
 
   ws.on('close', () => {
+    broadcastToAll({ type: 'player_offline', playerId: conn.playerId });
     removeConnection(conn);
   });
 });

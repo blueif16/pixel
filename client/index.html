@@ -203,7 +203,53 @@
   .tb-btn:hover { border-color: var(--accent); color: var(--accent); }
 
   /* ── GAME (multiplayer) ── */
-  #game-screen { flex-direction: column; align-items: center; justify-content: center; position: relative; background: #0a0c12; }
+  #game-screen { flex-direction: row; align-items: stretch; position: relative; background: #0a0c12; }
+
+  /* Left online panel */
+  #online-panel {
+    width: 200px; min-width: 200px;
+    background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden; z-index: 5;
+  }
+  .panel-header {
+    padding: 14px 12px 10px;
+    font-family: 'Press Start 2P', monospace; font-size: 8px; letter-spacing: 1px;
+    color: var(--text-dim); border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .online-count {
+    background: var(--accent-dim); color: var(--accent);
+    font-size: 8px; padding: 2px 7px; border-radius: 8px;
+  }
+  #online-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .online-player {
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .online-player-name {
+    font-size: 11px; color: var(--text);
+    display: flex; align-items: center; gap: 6px;
+    overflow: hidden;
+  }
+  .online-player-name span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .online-dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; flex-shrink: 0; }
+  .online-room { font-size: 9px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 12px; }
+  .btn-visit {
+    margin-top: 2px; padding: 4px 8px; background: none;
+    border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-dim); font-family: inherit; font-size: 10px;
+    cursor: pointer; transition: all 0.15s; width: 100%; text-align: left;
+  }
+  .btn-visit:hover { border-color: var(--accent); color: var(--accent); }
+  .online-self .online-dot { background: var(--warm); }
+  .online-self .online-player-name { color: var(--warm); }
+
+  /* Main game area */
+  #game-main {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    overflow: hidden; padding: 8px; min-width: 0;
+  }
   #game-canvas { image-rendering: pixelated; image-rendering: crisp-edges; border: 1px solid var(--border); border-radius: 4px; }
   #player-list { font-size: 12px; color: var(--text-dim); margin-top: 8px; text-align: center; }
   #chat-container { width: 100%; max-width: 400px; margin-top: 12px; }
@@ -216,7 +262,7 @@
   #chat-form input:focus { outline: none; border-color: var(--accent); }
   #chat-form button { padding: 10px 16px; background: var(--accent); color: var(--bg); border: none; border-radius: 6px; font-family: inherit; font-size: 12px; cursor: pointer; }
   .game-back {
-    position: absolute; top: 16px; left: 16px; z-index: 10;
+    position: absolute; top: 16px; left: 216px; z-index: 10;
     background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
     color: var(--text-dim); font-family: inherit; font-size: 12px;
     padding: 8px 14px; cursor: pointer; transition: all 0.15s;
@@ -322,16 +368,29 @@
 
 <div id="game-screen" class="screen">
   <button class="game-back" onclick="exitGame()">← Leave</button>
-  <canvas id="game-canvas"></canvas>
-  <div id="player-list"></div>
-  <div id="chat-container">
-    <div id="chat-messages"></div>
-    <form id="chat-form">
-      <input type="text" id="chat-input" placeholder="Press Enter to chat..." maxlength="200">
-      <button type="submit">Send</button>
-    </form>
+
+  <!-- Left: online players panel -->
+  <div id="online-panel">
+    <div class="panel-header">
+      <span>ONLINE</span>
+      <span id="online-count" class="online-count">0</span>
+    </div>
+    <div id="online-list"></div>
   </div>
-  <div class="controls-hint">Arrow keys or click to move · Click a chair to sit · Esc = stand</div>
+
+  <!-- Right: game canvas + chat -->
+  <div id="game-main">
+    <canvas id="game-canvas"></canvas>
+    <div id="player-list"></div>
+    <div id="chat-container">
+      <div id="chat-messages"></div>
+      <form id="chat-form">
+        <input type="text" id="chat-input" placeholder="Press Enter to chat..." maxlength="200">
+        <button type="submit">Send</button>
+      </form>
+    </div>
+    <div class="controls-hint">Arrow keys or click to move · Click a chair to sit · Esc = stand</div>
+  </div>
 </div>
 
 <div class="log-bar" id="log-bar"></div>
@@ -415,6 +474,9 @@ const WALK_SEQ = ['idle', 'stepA', 'idle', 'stepB'];
 
 const tileImages     = {};
 const furnitureImages = {};
+
+const onlineState  = new Map(); // playerId → { displayName, roomId }
+let currentRoomId  = 'lobby';
 
 let characters   = [];
 let selectedChar  = null;
@@ -900,6 +962,27 @@ function handleWSMessage(msg) {
     case 'chat_message':
       handleChatMessage(msg);
       break;
+    case 'online_players':
+      onlineState.clear();
+      msg.players.forEach(p => onlineState.set(p.playerId, { displayName: p.displayName, roomId: p.roomId }));
+      renderOnlinePanel();
+      break;
+    case 'player_online':
+      onlineState.set(msg.playerId, { displayName: msg.displayName, roomId: null });
+      renderOnlinePanel();
+      break;
+    case 'player_offline':
+      onlineState.delete(msg.playerId);
+      renderOnlinePanel();
+      break;
+    case 'player_room_changed':
+      if (onlineState.has(msg.playerId)) {
+        onlineState.get(msg.playerId).roomId = msg.roomId;
+      } else {
+        onlineState.set(msg.playerId, { displayName: msg.displayName, roomId: msg.roomId });
+      }
+      renderOnlinePanel();
+      break;
   }
   renderGame();
 }
@@ -1096,6 +1179,48 @@ function getOrCreateSprite(playerId, avatarUrl) {
     spriteCache.set(playerId, new PlayerSprite(avatarUrl));
   }
   return spriteCache.get(playerId);
+}
+
+// =================================================================
+// ONLINE PANEL
+// =================================================================
+function renderOnlinePanel() {
+  const list = document.getElementById('online-list');
+  const countEl = document.getElementById('online-count');
+  if (!list) return;
+  countEl.textContent = onlineState.size;
+  list.innerHTML = '';
+  for (const [playerId, info] of onlineState.entries()) {
+    const isSelf = playerId === authState.playerId;
+    const div = document.createElement('div');
+    div.className = 'online-player' + (isSelf ? ' online-self' : '');
+    const nameRow = document.createElement('div');
+    nameRow.className = 'online-player-name';
+    nameRow.innerHTML = `<span class="online-dot"></span><span>${escapeHtml(info.displayName || playerId)}</span>`;
+    div.appendChild(nameRow);
+    const roomRow = document.createElement('div');
+    roomRow.className = 'online-room';
+    roomRow.textContent = info.roomId ? (isSelf ? `★ ${info.roomId}` : info.roomId) : '…';
+    div.appendChild(roomRow);
+    if (!isSelf && info.roomId && info.roomId !== currentRoomId) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-visit';
+      btn.textContent = '→ Visit';
+      btn.onclick = () => visitPlayer(info.roomId);
+      div.appendChild(btn);
+    }
+    list.appendChild(div);
+  }
+}
+
+function visitPlayer(roomId) {
+  if (!roomId || roomId === currentRoomId) return;
+  currentRoomId = roomId;
+  renderOnlinePanel();
+  if (ws?.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'join_room', payload: { roomId, avatarUrl: gameState.avatarUrl || selectedChar?.url || '' } }));
+    log(`Visiting room: ${roomId}`, 'ok');
+  }
 }
 
 function exitGame() {
@@ -1299,12 +1424,14 @@ document.getElementById('chat-form').addEventListener('submit', (e) => {
 const _origConnectWS = connectWS;
 connectWS = function() {
   _origConnectWS();
-  // After WS opens, join the default room
+  // After WS opens, join the default room and fetch online players
   const _origOnOpen = ws.onopen;
   ws.onopen = () => {
     _origOnOpen && _origOnOpen();
     if (ws?.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'join_room', payload: { roomId: 'lobby', avatarUrl: gameState.avatarUrl || selectedChar?.url || '' } }));
+      currentRoomId = 'lobby';
+      ws.send(JSON.stringify({ type: 'join_room', payload: { roomId: currentRoomId, avatarUrl: gameState.avatarUrl || selectedChar?.url || '' } }));
+      ws.send(JSON.stringify({ type: 'get_online_players', payload: {} }));
       // Transition to game screen after brief delay
       setTimeout(() => {
         showScreen('game-screen');
