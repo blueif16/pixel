@@ -213,18 +213,14 @@
     cursor: pointer; transition: all 0.15s; letter-spacing: 1px;
   }
   .btn-enter:hover { background: #a8f0e0; transform: translateY(-1px); }
-  /* Toolbar — right edge vertical strip */
-  .live-toolbar {
-    position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
-    display: none; flex-direction: column; gap: 6px; z-index: 10;
-  }
+  .live-toolbar { display: none; gap: 6px; }
   .live-toolbar.visible { display: flex; }
   .tb-btn {
-    padding: 10px 16px; background: var(--surface); border: 1px solid var(--border-hi);
+    padding: 8px 14px; background: var(--border-hi); border: 1px solid var(--border-hi);
     border-radius: 6px; color: var(--text); font-family: inherit; font-size: 11px;
-    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    cursor: pointer; transition: all 0.15s;
   }
-  .tb-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .tb-btn:hover { background: var(--surface); border-color: var(--accent); color: var(--accent); }
 
   /* ── GAME (multiplayer) ── */
   #game-screen { flex-direction: row; align-items: stretch; position: relative; background: #0a0c12; }
@@ -235,33 +231,20 @@
     background: var(--surface); border-right: 1px solid var(--border);
     display: flex; flex-direction: column; overflow: hidden; z-index: 5;
   }
-
-  /* Clickable section headers */
-  .panel-header, .chat-divider {
-    flex-shrink: 0;
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 14px;
+  .panel-header {
+    padding: 12px 12px 10px;
     font-family: 'Press Start 2P', monospace; font-size: 8px; letter-spacing: 1px;
     color: var(--text-dim); border-bottom: 1px solid var(--border);
-    cursor: pointer; user-select: none; transition: background 0.12s;
+    display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0;
   }
-  .panel-header:hover, .chat-divider:hover { background: var(--border); }
-  .section-chevron { font-size: 9px; transition: transform 0.2s; }
-  .section-chevron.collapsed { transform: rotate(-90deg); }
   .online-count {
     background: var(--accent-dim); color: var(--accent);
     font-size: 8px; padding: 2px 7px; border-radius: 8px;
   }
-
-  #online-list {
-    overflow-y: auto; padding: 6px 8px;
-    max-height: 999px; min-height: 0;
-    transition: max-height 0.22s ease, padding 0.22s ease;
-  }
-  #online-list.collapsed { max-height: 0; overflow: hidden; padding: 0 8px; }
+  #online-list { flex: 1; overflow-y: auto; padding: 4px 0; min-height: 0; }
   .online-player {
-    padding: 8px; margin-bottom: 2px;
-    border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
     display: flex; flex-direction: column; gap: 3px;
   }
   .online-player-name {
@@ -282,22 +265,36 @@
   .online-self .online-player-name { color: var(--warm); }
 
   /* Chat section inside sidebar */
-  .chat-divider { border-top: 1px solid var(--border); border-bottom: none; }
+  .chat-divider {
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-top: 1px solid var(--border);
+    font-family: 'Press Start 2P', monospace; font-size: 8px;
+    letter-spacing: 1px; color: var(--text-dim);
+  }
+  .chat-toggle-btn {
+    background: none; border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-dim); font-size: 10px; padding: 2px 7px;
+    cursor: pointer; line-height: 1; transition: all 0.15s;
+  }
+  .chat-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
   #chat-section {
-    display: flex; flex-direction: column;
-    overflow: hidden; max-height: 600px;
-    transition: max-height 0.22s ease;
+    flex-shrink: 0; display: flex; flex-direction: column;
+    border-top: 1px solid var(--border);
+    transition: max-height 0.2s ease; overflow: hidden;
+    max-height: 320px;
   }
-  #chat-section.collapsed { max-height: 0; }
+  #chat-section.collapsed { max-height: 0; border-top-color: transparent; }
   #chat-messages {
-    overflow-y: auto; padding: 8px 12px;
-    font-size: 11px; flex: 1; min-height: 200px; max-height: 500px;
+    flex: 1; overflow-y: auto; padding: 8px 12px;
+    font-size: 11px; max-height: 250px; min-height: 120px;
   }
-  .chat-msg { margin-bottom: 5px; line-height: 1.5; }
+  .chat-msg { margin-bottom: 4px; line-height: 1.5; }
   .chat-msg .name { color: var(--accent); font-weight: 600; }
   .chat-msg .text { color: var(--text); }
   #chat-form {
-    display: flex; flex-shrink: 0; border-top: 1px solid var(--border);
+    display: flex; flex-shrink: 0;
+    border-top: 1px solid var(--border);
   }
   #chat-form input {
     flex: 1; padding: 9px 10px; background: var(--bg);
@@ -328,15 +325,15 @@
   .game-back:hover { border-color: var(--accent); color: var(--accent); }
   .controls-hint { font-size: 10px; color: var(--text-dim); margin-top: 8px; }
 
-  /* log — bottom-left floating toast */
+  /* log */
   .log-bar {
-    position: fixed; bottom: 12px; left: 12px; z-index: 150;
-    width: 280px; max-height: 0; overflow: hidden;
-    background: rgba(20,22,34,0.93); border: 1px solid var(--border);
-    border-radius: 8px; font-size: 10px; color: var(--text-dim);
-    transition: max-height 0.18s ease; pointer-events: none;
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 150;
+    width: 0; overflow: hidden; background: rgba(12,14,22,0.95);
+    border-left: 1px solid var(--border); font-size: 10px; color: var(--text-dim);
+    transition: width 0.2s; display: flex; flex-direction: column-reverse;
+    justify-content: flex-start;
   }
-  .log-bar.open { max-height: 110px; overflow-y: auto; padding: 7px 10px; }
+  .log-bar.open { width: 220px; overflow-y: auto; padding: 8px 10px; }
   .log-bar .entry { margin-bottom: 3px; white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
   .log-bar .error { color: var(--danger); }
   .log-bar .ok { color: var(--accent); }
@@ -418,12 +415,12 @@
   <div class="room-controls-hint">Arrow keys / WASD to move · Space = wave · E = eat · R = laugh</div>
   <div class="room-bottom">
     <button class="btn-enter" id="enter-btn" onclick="enterGame()">ENTER GAME</button>
-  </div>
-  <div class="live-toolbar" id="live-toolbar">
-    <button class="tb-btn" onclick="tbAction('furniture')">Furniture</button>
-    <button class="tb-btn" onclick="tbAction('chat')">Chat</button>
-    <button class="tb-btn" onclick="tbAction('invite')">Invite</button>
-    <button class="tb-btn" onclick="tbAction('emotes')">Emotes</button>
+    <div class="live-toolbar" id="live-toolbar">
+      <button class="tb-btn" onclick="tbAction('furniture')">Furniture</button>
+      <button class="tb-btn" onclick="tbAction('chat')">Chat</button>
+      <button class="tb-btn" onclick="tbAction('invite')">Invite</button>
+      <button class="tb-btn" onclick="tbAction('emotes')">Emotes</button>
+    </div>
   </div>
 </div>
 
@@ -432,14 +429,14 @@
 
   <!-- Left: online players + chat sidebar -->
   <div id="online-panel">
-    <div class="panel-header" onclick="toggleSection('online')">
-      <span>ONLINE <span id="online-count" class="online-count">0</span></span>
-      <span class="section-chevron" id="online-chevron">▾</span>
+    <div class="panel-header">
+      <span>ONLINE</span>
+      <span id="online-count" class="online-count">0</span>
     </div>
     <div id="online-list"></div>
-    <div class="chat-divider" onclick="toggleSection('chat')">
+    <div class="chat-divider">
       <span>CHAT</span>
-      <span class="section-chevron" id="chat-chevron">▾</span>
+      <button class="chat-toggle-btn" id="chat-toggle-btn" onclick="toggleChat()">▼</button>
     </div>
     <div id="chat-section">
       <div id="chat-messages"></div>
@@ -1151,18 +1148,11 @@ function handleChatMessage(msg) {
 
 function tbAction(a) { log(`[${a}] — not wired yet`); }
 
-function toggleSection(name) {
-  if (name === 'online') {
-    const list = document.getElementById('online-list');
-    const chevron = document.getElementById('online-chevron');
-    const collapsed = list.classList.toggle('collapsed');
-    chevron.classList.toggle('collapsed', collapsed);
-  } else if (name === 'chat') {
-    const section = document.getElementById('chat-section');
-    const chevron = document.getElementById('chat-chevron');
-    const collapsed = section.classList.toggle('collapsed');
-    chevron.classList.toggle('collapsed', collapsed);
-  }
+function toggleChat() {
+  const section = document.getElementById('chat-section');
+  const btn = document.getElementById('chat-toggle-btn');
+  const collapsed = section.classList.toggle('collapsed');
+  btn.textContent = collapsed ? '▲' : '▼';
 }
 
 // =================================================================
