@@ -226,13 +226,14 @@
 
   /* log */
   .log-bar {
-    position: fixed; bottom: 0; left: 0; right: 0; z-index: 150;
-    max-height: 0; overflow: hidden; background: rgba(12,14,22,0.95);
-    border-top: 1px solid var(--border); font-size: 10px; color: var(--text-dim);
-    transition: max-height 0.2s; padding: 0 12px;
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 150;
+    width: 0; overflow: hidden; background: rgba(12,14,22,0.95);
+    border-left: 1px solid var(--border); font-size: 10px; color: var(--text-dim);
+    transition: width 0.2s; display: flex; flex-direction: column-reverse;
+    justify-content: flex-start;
   }
-  .log-bar.open { max-height: 120px; overflow-y: auto; padding: 8px 12px; }
-  .log-bar .entry { margin-bottom: 2px; }
+  .log-bar.open { width: 220px; overflow-y: auto; padding: 8px 10px; }
+  .log-bar .entry { margin-bottom: 3px; white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
   .log-bar .error { color: var(--danger); }
   .log-bar .ok { color: var(--accent); }
 </style>
@@ -351,21 +352,47 @@ let authState = {
   playerId: null
 };
 
+async function cognitoRequest(action, body) {
+  const resp = await fetch(`https://cognito-idp.${COGNITO_REGION}.amazonaws.com/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-amz-json-1.1',
+      'X-Amz-Target': `AWSCognitoIdentityProviderService.${action}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.message || data.__type || `Cognito error`);
+  return data;
+}
+
 async function signUp(email, password, displayName) {
-  authState.email = email;
-  authState.password = password;
-  authState.displayName = displayName;
-  authState.jwt = btoa(JSON.stringify({ sub: 'dev-' + Date.now(), email, name: displayName }));
-  authState.playerId = 'dev-' + Date.now();
-  return { success: true };
+  await cognitoRequest('SignUp', {
+    ClientId: COGNITO_CLIENT_ID,
+    Username: email,
+    Password: password,
+    UserAttributes: [
+      { Name: 'name', Value: displayName },
+      { Name: 'preferred_username', Value: displayName },
+    ],
+  });
+  return { success: true, needsConfirmation: true };
 }
 
 async function signIn(email, password) {
+  const data = await cognitoRequest('InitiateAuth', {
+    AuthFlow: 'USER_PASSWORD_AUTH',
+    ClientId: COGNITO_CLIENT_ID,
+    AuthParameters: { USERNAME: email, PASSWORD: password },
+  });
+  const tokens = data.AuthenticationResult;
+  if (!tokens) throw new Error('Auth challenge not supported');
+  const decoded = JSON.parse(atob(tokens.IdToken.split('.')[1]));
   authState.email = email;
   authState.password = password;
-  authState.displayName = email.split('@')[0];
-  authState.jwt = btoa(JSON.stringify({ sub: 'dev-' + Date.now(), email, name: email.split('@')[0] }));
-  authState.playerId = 'dev-' + Date.now();
+  authState.displayName = decoded.name || decoded['cognito:username'] || email.split('@')[0];
+  authState.jwt = tokens.IdToken;
+  authState.playerId = decoded.sub;
   return { success: true };
 }
 
