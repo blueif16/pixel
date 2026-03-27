@@ -213,14 +213,18 @@
     cursor: pointer; transition: all 0.15s; letter-spacing: 1px;
   }
   .btn-enter:hover { background: #a8f0e0; transform: translateY(-1px); }
-  .live-toolbar { display: none; gap: 6px; }
+  /* Toolbar lives in game-screen, right edge */
+  .live-toolbar {
+    display: none; position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+    flex-direction: column; gap: 6px; z-index: 10;
+  }
   .live-toolbar.visible { display: flex; }
   .tb-btn {
-    padding: 8px 14px; background: var(--border-hi); border: 1px solid var(--border-hi);
+    padding: 10px 16px; background: var(--surface); border: 1px solid var(--border-hi);
     border-radius: 6px; color: var(--text); font-family: inherit; font-size: 11px;
-    cursor: pointer; transition: all 0.15s;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
   }
-  .tb-btn:hover { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+  .tb-btn:hover { border-color: var(--accent); color: var(--accent); }
 
   /* ── GAME (multiplayer) ── */
   #game-screen { flex-direction: row; align-items: stretch; position: relative; background: #0a0c12; }
@@ -415,17 +419,19 @@
   <div class="room-controls-hint">Arrow keys / WASD to move · Space = wave · E = eat · R = laugh</div>
   <div class="room-bottom">
     <button class="btn-enter" id="enter-btn" onclick="enterGame()">ENTER GAME</button>
-    <div class="live-toolbar" id="live-toolbar">
-      <button class="tb-btn" onclick="tbAction('furniture')">Furniture</button>
-      <button class="tb-btn" onclick="tbAction('chat')">Chat</button>
-      <button class="tb-btn" onclick="tbAction('invite')">Invite</button>
-      <button class="tb-btn" onclick="tbAction('emotes')">Emotes</button>
-    </div>
   </div>
 </div>
 
 <div id="game-screen" class="screen">
   <button class="game-back" onclick="exitGame()">← Leave</button>
+
+  <!-- Action toolbar — right edge of canvas -->
+  <div class="live-toolbar" id="live-toolbar">
+    <button class="tb-btn" onclick="tbAction('furniture')">Furniture</button>
+    <button class="tb-btn" onclick="tbAction('chat')">Chat</button>
+    <button class="tb-btn" onclick="tbAction('invite')">Invite</button>
+    <button class="tb-btn" onclick="tbAction('emotes')">Emotes</button>
+  </div>
 
   <!-- Left: online players + chat sidebar -->
   <div id="online-panel">
