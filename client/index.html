@@ -315,11 +315,13 @@
 
   /* Main game area */
   #game-main {
-    flex: 1; display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    overflow: hidden; padding: 8px; min-width: 0;
+    flex: 1; position: relative; overflow: hidden; min-width: 0;
   }
-  #game-canvas { image-rendering: pixelated; image-rendering: crisp-edges; border: 1px solid var(--border); border-radius: 4px; }
+  #game-canvas {
+    image-rendering: pixelated; image-rendering: crisp-edges;
+    border: 1px solid var(--border); border-radius: 4px;
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  }
   .game-back {
     position: absolute; top: 12px; left: 232px; z-index: 10;
     background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
