@@ -213,14 +213,14 @@
     cursor: pointer; transition: all 0.15s; letter-spacing: 1px;
   }
   .btn-enter:hover { background: #a8f0e0; transform: translateY(-1px); }
-  /* Toolbar lives in game-screen, right edge */
+  /* Toolbar — horizontal, centered bottom of game-screen */
   .live-toolbar {
-    display: none; position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
-    flex-direction: column; gap: 6px; z-index: 10;
+    display: none; position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    flex-direction: row; gap: 8px; z-index: 10;
   }
   .live-toolbar.visible { display: flex; }
   .tb-btn {
-    padding: 10px 16px; background: var(--surface); border: 1px solid var(--border-hi);
+    padding: 10px 18px; background: var(--surface); border: 1px solid var(--border-hi);
     border-radius: 6px; color: var(--text); font-family: inherit; font-size: 11px;
     cursor: pointer; transition: all 0.15s; white-space: nowrap;
   }
