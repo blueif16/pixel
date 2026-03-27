@@ -1070,9 +1070,9 @@ function startLoop() { if (gameLoop) cancelAnimationFrame(gameLoop); render(); }
 class PlayerSprite {
   constructor(avatarUrl) {
     this.image = new Image();
-    this.image.src = avatarUrl;
     this.loaded = false;
     this.image.onload = () => { this.loaded = true; };
+    if (avatarUrl) this.image.src = avatarUrl;
     this.walkCycle = ['idle', 'stepA', 'idle', 'stepB'];
     this.walkIndex = 0;
     this.currentPose = 'idle';
@@ -1091,7 +1091,8 @@ class PlayerSprite {
 }
 
 function getOrCreateSprite(playerId, avatarUrl) {
-  if (!spriteCache.has(playerId)) {
+  const existing = spriteCache.get(playerId);
+  if (!existing || (avatarUrl && existing.image.src !== avatarUrl && !existing.loaded)) {
     spriteCache.set(playerId, new PlayerSprite(avatarUrl));
   }
   return spriteCache.get(playerId);
@@ -1147,7 +1148,6 @@ function renderGame() {
   // helper to draw a player sprite (y-sorted)
   function addPlayerDraw(px, py, direction, pose, avatarUrl, playerId, label) {
     const sprite = getOrCreateSprite(playerId, avatarUrl);
-    if (!sprite.loaded) return;
     const dw = CELL * SCALE;
     const dh = CELL * SCALE;
     const cx = px * tileSize + tileSize / 2;
@@ -1161,8 +1161,15 @@ function renderGame() {
       ctx.save(); ctx.globalAlpha = 0.22; ctx.fillStyle = '#000';
       ctx.beginPath(); ctx.ellipse(cx, cy + dh / 2 - 6, 16, 6, 0, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
-      // sprite
-      ctx.drawImage(sprite.image, col * CELL, row * CELL, CELL, CELL, dx, dy, dw, dh);
+      // sprite (placeholder silhouette while image loads)
+      if (!sprite.loaded) {
+        ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = '#8899bb';
+        ctx.fillRect(dx + dw * 0.2, dy, dw * 0.6, dh * 0.55);
+        ctx.beginPath(); ctx.arc(cx, dy - dh * 0.05, dw * 0.2, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.drawImage(sprite.image, col * CELL, row * CELL, CELL, CELL, dx, dy, dw, dh);
+      }
       // name tag
       ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center';
       const metrics = ctx.measureText(label);
@@ -1175,13 +1182,13 @@ function renderGame() {
 
   // other players
   Object.values(gameState.players).forEach(p => {
-    if (p.playerId !== authState.playerId && p.avatarUrl) {
+    if (p.playerId !== authState.playerId) {
       addPlayerDraw(p.x, p.y, p.direction, p.pose, p.avatarUrl, p.playerId, p.displayName || p.playerId);
     }
   });
 
   // self
-  if (gameState.self && gameState.avatarUrl) {
+  if (gameState.self) {
     addPlayerDraw(gameState.self.x, gameState.self.y, gameState.direction, gameState.pose,
       gameState.avatarUrl, authState.playerId, authState.displayName || authState.playerId);
   }
