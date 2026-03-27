@@ -182,6 +182,26 @@
   #room-canvas { image-rendering: pixelated; image-rendering: crisp-edges; border: 1px solid var(--border); border-radius: 4px; }
   .room-controls-hint { position: absolute; bottom: 80px; font-size: 9px; color: var(--text-dim); pointer-events: none; }
 
+  /* ── TEMPLATE PICKER ── */
+  .template-nav {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    z-index: 10; background: rgba(20,23,34,0.88); border: 1px solid var(--border-hi);
+    border-radius: 6px; color: var(--accent); font-family: 'Press Start 2P', monospace;
+    font-size: 18px; padding: 16px 14px; cursor: pointer; transition: all 0.15s;
+    line-height: 1; display: none;
+  }
+  .template-nav:hover { background: rgba(127,219,202,0.12); border-color: var(--accent); }
+  .template-nav.visible { display: block; }
+  /* left/right position set dynamically by positionArrows() */
+  #template-label {
+    position: absolute; bottom: 88px; left: 50%; transform: translateX(-50%);
+    font-family: 'Press Start 2P', monospace; font-size: 8px; color: var(--accent);
+    background: rgba(12,14,22,0.88); border: 1px solid var(--border-hi);
+    padding: 6px 14px; border-radius: 4px; white-space: nowrap;
+    display: none; pointer-events: none; letter-spacing: 1px;
+  }
+  #template-label.visible { display: block; }
+
   .room-bottom {
     position: absolute; bottom: 0; left: 0; right: 0;
     display: flex; align-items: center; justify-content: center;
@@ -353,7 +373,10 @@
 <div id="room-screen" class="screen">
   <button class="room-back" onclick="exitRoom()">← Back</button>
   <div class="room-label" id="room-label">PREVIEW</div>
+  <button class="template-nav" id="template-prev" onclick="switchTemplate(-1)">◀</button>
   <canvas id="room-canvas"></canvas>
+  <button class="template-nav" id="template-next" onclick="switchTemplate(+1)">▶</button>
+  <div id="template-label"></div>
   <div class="room-controls-hint">Arrow keys / WASD to move · Space = wave · E = eat · R = laugh</div>
   <div class="room-bottom">
     <button class="btn-enter" id="enter-btn" onclick="enterGame()">ENTER GAME</button>
@@ -494,11 +517,21 @@ let genTimer      = null;
 let gameState     = { players: {}, furniture: {}, self: null, avatarUrl: null, direction: 'down', pose: 'idle' };
 const spriteCache  = new Map();
 
+// ── TEMPLATE PICKER ──
+const ROOM_TEMPLATES = [
+  { id: 'default', name: 'Cozy Home' },
+  { id: 'cozy',    name: 'Warm Lounge' },
+  { id: 'cafe',    name: 'Street Cafe' },
+  { id: 'library', name: 'Grand Library' },
+];
+let templateIdx = 0;
+
 let SCALE      = 2;
 let tileCanvasCache = null;
 const TILE_FALLBACK = {
   wall_stone:  '#2a2e3e', wall_window: '#2a3550', floor_wood: '#3d2b1e',
   floor_stone: '#2c2c38', door_wood:   '#4a3020', rug_center: '#4a2030',
+  wall_brick:  '#5c2a1a', floor_carpet:'#1a3a2a', floor_marble:'#d8d8e0',
 };
 
 // =================================================================
@@ -854,20 +887,86 @@ function cancelGenerate() {
 }
 
 // =================================================================
-// ROOM — ENTER / EXIT / LIVE
+// TEMPLATE LOADER
 // =================================================================
-function enterRoom(img) {
-  spriteSheet = img;
+async function loadTemplate(id) {
+  const resp = await fetch(`/rooms/${id}.json`);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  ROOM = await resp.json();
+
+  const usedTiles = new Set();
+  for (const row of ROOM.tileMap) for (const t of row) usedTiles.add(t);
+  await Promise.all([...usedTiles].map(id => {
+    if (tileImages[id]) return;
+    const def = TILESET[id];
+    if (!def) return;
+    return loadImage(def.sprite).then(img => { tileImages[id] = img; }).catch(() => {});
+  }));
+
+  const usedFurn = new Set((ROOM.furniture || []).map(f => f.itemId));
+  await Promise.all([...usedFurn].map(itemId => {
+    if (furnitureImages[itemId]) return;
+    const def = MANIFEST.furniture?.[itemId];
+    if (!def) return;
+    return loadImage(def.sprite).then(img => { furnitureImages[itemId] = img; }).catch(() => {});
+  }));
+
+  tileCanvasCache = null;
+}
+
+async function switchTemplate(delta) {
+  templateIdx = ((templateIdx + delta) % ROOM_TEMPLATES.length + ROOM_TEMPLATES.length) % ROOM_TEMPLATES.length;
+  const t = ROOM_TEMPLATES[templateIdx];
+  try {
+    await loadTemplate(t.id);
+  } catch (e) {
+    log(`Failed to load room template: ${e.message}`, 'error');
+    return;
+  }
   const sp = ROOM.spawnPoint || { x: 6, y: 6 };
   player = { x: sp.x, y: sp.y, direction: 'down', pose: 'idle' };
-  walkIdx = 0; isLive = false;
-  document.getElementById('room-label').textContent = 'PREVIEW';
+  walkIdx = 0;
+  sizeCanvas();
+  document.getElementById('template-label').textContent = `${t.name}  [${templateIdx + 1}/${ROOM_TEMPLATES.length}]`;
+  log(`Room: ${t.name}`, 'ok');
+}
+
+// =================================================================
+// ROOM — ENTER / EXIT / LIVE
+// =================================================================
+async function enterRoom(img) {
+  spriteSheet = img;
+  isLive = false;
+
+  // Restore last-saved template, defaulting to 0
+  const saved = localStorage.getItem('pixelRoomTemplate');
+  const idx = ROOM_TEMPLATES.findIndex(t => t.id === saved);
+  templateIdx = idx >= 0 ? idx : 0;
+
+  // Load the correct room JSON (boot only loaded default; skip if already correct)
+  if (ROOM_TEMPLATES[templateIdx].id !== 'default') {
+    try { await loadTemplate(ROOM_TEMPLATES[templateIdx].id); }
+    catch (e) { templateIdx = 0; log(`Room load failed, using default`, 'error'); }
+  }
+
+  // Always show picker arrows
+  const t = ROOM_TEMPLATES[templateIdx];
+  document.getElementById('template-prev').classList.add('visible');
+  document.getElementById('template-next').classList.add('visible');
+  document.getElementById('template-label').classList.add('visible');
+  document.getElementById('template-label').textContent = `${t.name}  [${templateIdx + 1}/${ROOM_TEMPLATES.length}]`;
+  log(`Rooms: ${ROOM_TEMPLATES.map((r,i) => (i===templateIdx?'▶ ':'')+r.name).join(' · ')}`, 'ok');
+
+  const sp = ROOM.spawnPoint || { x: 6, y: 6 };
+  player = { x: sp.x, y: sp.y, direction: 'down', pose: 'idle' };
+  walkIdx = 0;
+  document.getElementById('room-label').textContent = 'PICK YOUR ROOM';
   document.getElementById('room-label').className = 'room-label';
   document.getElementById('enter-btn').style.display = '';
   document.getElementById('live-toolbar').classList.remove('visible');
   showScreen('room-screen');
   sizeCanvas(); startLoop();
-  log('Entered room — preview mode', 'ok');
+  log(`arrows: prev.visible=${document.getElementById('template-prev').classList.contains('visible')} left=${document.getElementById('template-prev').style.left}`, 'ok');
 }
 function exitRoom() {
   if (ws) { ws.close(); ws = null; }
@@ -878,6 +977,14 @@ function exitRoom() {
   fetchCharacters();
 }
 function enterGame() {
+  // Record chosen template (idempotent — overwrites on re-pick is fine)
+  localStorage.setItem('pixelRoomTemplate', ROOM_TEMPLATES[templateIdx].id);
+
+  // Hide template picker
+  document.getElementById('template-prev').classList.remove('visible');
+  document.getElementById('template-next').classList.remove('visible');
+  document.getElementById('template-label').classList.remove('visible');
+
   isLive = true;
   document.getElementById('enter-btn').style.display = 'none';
   document.getElementById('live-toolbar').classList.add('visible');
@@ -1006,6 +1113,23 @@ function tbAction(a) { log(`[${a}] — not wired yet`); }
 // =================================================================
 // CANVAS
 // =================================================================
+function positionArrows() {
+  const cvs = document.getElementById('room-canvas');
+  const rect = cvs.getBoundingClientRect();
+  const prev = document.getElementById('template-prev');
+  const next = document.getElementById('template-next');
+  if (!prev || !next) return;
+  // Center each arrow in the gap between canvas edge and screen edge
+  const leftCenter  = Math.round(rect.left / 2);
+  const rightCenter = Math.round(rect.right + (window.innerWidth - rect.right) / 2);
+  prev.style.left      = leftCenter  + 'px';
+  prev.style.right     = 'auto';
+  prev.style.transform = 'translateX(-50%) translateY(-50%)';
+  next.style.left      = rightCenter + 'px';
+  next.style.right     = 'auto';
+  next.style.transform = 'translateX(-50%) translateY(-50%)';
+}
+
 function sizeCanvas() {
   computeTileScale();
   buildTileCanvas();
@@ -1014,6 +1138,7 @@ function sizeCanvas() {
   const rh = (ROOM.height || 12) * TILE_SIZE;
   cvs.width = rw; cvs.height = rh;
   cvs.style.width = rw + 'px'; cvs.style.height = rh + 'px';
+  positionArrows();
 }
 addEventListener('resize', () => {
   if (document.getElementById('room-screen').classList.contains('active')) sizeCanvas();
@@ -1429,8 +1554,9 @@ connectWS = function() {
   ws.onopen = () => {
     _origOnOpen && _origOnOpen();
     if (ws?.readyState === 1) {
-      currentRoomId = 'lobby';
-      ws.send(JSON.stringify({ type: 'join_room', payload: { roomId: currentRoomId, avatarUrl: gameState.avatarUrl || selectedChar?.url || '' } }));
+      currentRoomId = authState.playerId; // personal room = player's own Cognito sub
+      const chosenTemplate = ROOM_TEMPLATES[templateIdx].id;
+      ws.send(JSON.stringify({ type: 'join_room', payload: { roomId: currentRoomId, avatarUrl: gameState.avatarUrl || selectedChar?.url || '', template: chosenTemplate } }));
       ws.send(JSON.stringify({ type: 'get_online_players', payload: {} }));
       // Transition to game screen after brief delay
       setTimeout(() => {
