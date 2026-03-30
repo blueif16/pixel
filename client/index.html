@@ -1036,6 +1036,8 @@ function enterGame() {
   document.getElementById('live-toolbar').classList.add('visible');
   document.getElementById('room-label').textContent = 'LIVE';
   document.getElementById('room-label').className = 'room-label live';
+  // Lock in the chosen character's URL before WS connects so join_room carries it
+  gameState.avatarUrl = selectedChar?.url || gameState.avatarUrl || '';
   log('Live mode', 'ok');
   if (authState.jwt) connectWS();
 }
@@ -1070,6 +1072,15 @@ function handleWSMessage(msg) {
       gameState.furniture = msg.furniture || {};
       if (msg.players) msg.players.forEach(p => { gameState.players[p.playerId] = p; });
       gameState.self = gameState.players[authState.playerId] || null;
+      // Load room template if different from what's currently rendered.
+      // TODO(persistence): when server sends a full room doc instead of just `template`,
+      // replace this block with: ROOM = msg.room; tileCanvasCache = null; sizeCanvas();
+      // (no fetch needed — room data comes inline from DynamoDB via room_state payload)
+      if (msg.template && msg.template !== ROOM_TEMPLATES[templateIdx]?.id) {
+        const idx = ROOM_TEMPLATES.findIndex(t => t.id === msg.template);
+        if (idx >= 0) templateIdx = idx;
+        loadTemplate(msg.template).then(() => { computeTileScale(); buildTileCanvas(); }).catch(e => log(`Room load failed: ${e.message}`, 'error'));
+      }
       break;
     case 'player_joined':
       gameState.players[msg.playerId] = {
@@ -1353,7 +1364,7 @@ class PlayerSprite {
 
 function getOrCreateSprite(playerId, avatarUrl) {
   const existing = spriteCache.get(playerId);
-  if (!existing || (avatarUrl && existing.image.src !== avatarUrl && !existing.loaded)) {
+  if (!existing || (avatarUrl && existing.image.src !== avatarUrl)) {
     spriteCache.set(playerId, new PlayerSprite(avatarUrl));
   }
   return spriteCache.get(playerId);
@@ -1490,10 +1501,10 @@ function renderGame() {
     }
   });
 
-  // self
+  // self — use server-confirmed avatarUrl from gameState.self, fall back to local
   if (gameState.self) {
     addPlayerDraw(gameState.self.x, gameState.self.y, gameState.direction, gameState.pose,
-      gameState.avatarUrl, authState.playerId, authState.displayName || authState.playerId);
+      gameState.self.avatarUrl || gameState.avatarUrl, authState.playerId, authState.displayName || authState.playerId);
   }
 
   drawList.sort((a, b) => a.sortY - b.sortY);
@@ -1614,10 +1625,7 @@ connectWS = function() {
         const cvs = document.getElementById('game-canvas');
         cvs.addEventListener('click', handleCanvasClickGame);
         initGameLoop();
-        // Preload avatar
-        if (selectedChar?._img) {
-          gameState.avatarUrl = selectedChar.url;
-        }
+        // avatarUrl already set in enterGame() before connectWS()
       }, 300);
     }
   };

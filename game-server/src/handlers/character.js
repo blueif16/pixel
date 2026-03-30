@@ -19,7 +19,7 @@ async function handleCreateCharacter(conn, payload) {
 
   await socialEngine.createPlayer(conn.playerId, conn.displayName, avatarUrl);
 
-  sendTo(conn, { type: 'character_created', payload: { avatarUrl } });
+  sendTo(conn, { type: 'character_created', payload: { avatarUrl, playerId: conn.playerId } });
 }
 
 module.exports = { handleCreateCharacter };

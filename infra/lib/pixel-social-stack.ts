@@ -4,9 +4,10 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
-import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
+import { S3BucketOrigin, LoadBalancerV2Origin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import { Platform } from 'aws-cdk-lib/aws-ecr-assets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
@@ -86,8 +87,22 @@ export class PixelSocialStack extends Stack {
     });
 
     // ─── Cognito User Pool ─────────────────────────────────────────────────────
+    const autoConfirmFn = new lambda.Function(this, 'AutoConfirmUser', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromInline(`
+        exports.handler = async (event) => {
+          event.response.autoConfirmUser = true;
+          event.response.autoVerifyEmail = true;
+          return event;
+        };
+      `),
+    });
+
     const userPool = new cognito.UserPool(this, 'PixelSocialUsers', {
       userPoolName: 'pixel-social-users',
+      selfSignUpEnabled: true,
+      lambdaTriggers: { preSignUp: autoConfirmFn },
       signInAliases: { email: true },
       standardAttributes: {
         email: { required: true },
@@ -104,7 +119,7 @@ export class PixelSocialStack extends Stack {
     const userPoolClient = new cognito.UserPoolClient(this, 'PixelSocialClient', {
       userPool,
       generateSecret: false,
-      authFlows: { userSrp: true },
+      authFlows: { userSrp: true, userPassword: true },
     });
 
     // ─── S3 Bucket ─────────────────────────────────────────────────────────────
@@ -129,6 +144,40 @@ export class PixelSocialStack extends Stack {
       }),
     });
 
+    // ─── ALB (before CloudFront so we can reference it as origin) ────────────────
+    const alb = new elbv2.ApplicationLoadBalancer(this, 'PixelSocialALB', {
+      vpc,
+      internetFacing: true,
+      securityGroup: albSg,
+    });
+
+    // HTTP listener (dev fallback — use HTTPS listener with ACM cert for prod)
+    const httpListener = alb.addListener('HttpListener', {
+      port: 80,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+    });
+
+    const targetGroup = new elbv2.ApplicationTargetGroup(this, 'PixelSocialTarget', {
+      vpc,
+      port: 3000,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      targetType: elbv2.TargetType.IP,
+      healthCheck: {
+        path: '/health',
+        interval: Duration.seconds(30),
+        timeout: Duration.seconds(5),
+        healthyThresholdCount: 2,
+        unhealthyThresholdCount: 2,
+      },
+    });
+
+    httpListener.addTargetGroups('DefaultTarget', {
+      targetGroups: [targetGroup],
+    });
+
+    // Enable stickiness
+    targetGroup.enableCookieStickiness(Duration.minutes(5));
+
     // ─── CloudFront Distribution ───────────────────────────────────────────────
     // Custom cache policies with correct TTLs per spec (300s for manifest + avatars)
     const defaultCachePolicy = new cloudfront.CachePolicy(this, 'DefaultCachePolicy', {
@@ -146,6 +195,7 @@ export class PixelSocialStack extends Stack {
     });
 
     const distribution = new cloudfront.Distribution(this, 'PixelSocialDistribution', {
+      defaultRootObject: 'index.html',
       defaultBehavior: {
         origin: S3BucketOrigin.withOriginAccessControl(assetBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
@@ -161,6 +211,20 @@ export class PixelSocialStack extends Stack {
           origin: S3BucketOrigin.withOriginAccessControl(assetBucket),
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           cachePolicy: shortTtlCachePolicy,
+        },
+        '/ws': {
+          origin: new LoadBalancerV2Origin(alb, {
+            protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+          }),
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          cachePolicy: new cloudfront.CachePolicy(this, 'WebSocketCachePolicy', {
+            cachePolicyName: 'pixel-social-websocket',
+            defaultTtl: Duration.seconds(0),
+            maxTtl: Duration.seconds(0),
+            minTtl: Duration.seconds(0),
+          }),
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
         },
       },
     });
@@ -238,40 +302,6 @@ export class PixelSocialStack extends Stack {
       }),
     });
 
-    // ─── ALB ───────────────────────────────────────────────────────────────────
-    const alb = new elbv2.ApplicationLoadBalancer(this, 'PixelSocialALB', {
-      vpc,
-      internetFacing: true,
-      securityGroup: albSg,
-    });
-
-    // HTTP listener (dev fallback — use HTTPS listener with ACM cert for prod)
-    const httpListener = alb.addListener('HttpListener', {
-      port: 80,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-    });
-
-    const targetGroup = new elbv2.ApplicationTargetGroup(this, 'PixelSocialTarget', {
-      vpc,
-      port: 3000,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-      targetType: elbv2.TargetType.IP,
-      healthCheck: {
-        path: '/health',
-        interval: Duration.seconds(30),
-        timeout: Duration.seconds(5),
-        healthyThresholdCount: 2,
-        unhealthyThresholdCount: 2,
-      },
-    });
-
-    httpListener.addTargetGroups('DefaultTarget', {
-      targetGroups: [targetGroup],
-    });
-
-    // Enable stickiness
-    targetGroup.enableCookieStickiness(Duration.minutes(5));
-
     // ─── Fargate Service ───────────────────────────────────────────────────────
     const fargateService = new ecs.FargateService(this, 'PixelSocialService', {
       cluster,
@@ -288,15 +318,16 @@ export class PixelSocialStack extends Stack {
     // Allow Fargate to write to log group
     logGroup.grantWrite(taskExecutionRole);
 
-    // ─── Avatar Generation Lambda ──────────────────────────────────────────────
-    // Lambda is NOT in VPC — needs internet for AI API calls
-    const avatarLambda = new lambda.Function(this, 'AvatarLambda', {
-      functionName: 'pixel-social-avatar-gen',
-      runtime: lambda.Runtime.PYTHON_3_12,
-      handler: 'avatar_lambda.handler',
-      code: lambda.Code.fromAsset('../lambda'),
+    // ─── Avatar Generation Lambda (Docker) ─────────────────────────────────────
+    // Docker image Lambda — bundles google-genai, httpx, Pillow deps
+    // NOT in VPC — needs internet for Gemini + rembg API calls
+    const avatarLambda = new lambda.DockerImageFunction(this, 'AvatarLambdaV2', {
+      functionName: 'pixel-social-avatar-gen-v2',
+      code: lambda.DockerImageCode.fromImageAsset('../lambda', {
+        platform: Platform.LINUX_AMD64,
+      }),
       memorySize: 1024,
-      timeout: Duration.seconds(60),
+      timeout: Duration.seconds(120),
       environment: {
         S3_BUCKET: assetBucket.bucketName,
         CLOUDFRONT_DOMAIN: distribution.distributionDomainName,

@@ -2,8 +2,8 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const { validateToken } = require('./auth');
 const { handleMessage } = require('./router');
-const { addConnection, removeConnection } = require('./state');
-const { broadcastToAll } = require('./broadcast');
+const { addConnection, removeConnection, getPlayerState } = require('./state');
+const { broadcastToAll, broadcastToRoom } = require('./broadcast');
 
 const server = http.createServer((req, res) => {
   if (req.url === '/health') {
@@ -43,6 +43,10 @@ wss.on('connection', async (ws, req) => {
   });
 
   ws.on('close', () => {
+    const state = getPlayerState(conn.playerId);
+    if (state?.roomId) {
+      broadcastToRoom(state.roomId, { type: 'player_left', playerId: conn.playerId });
+    }
     broadcastToAll({ type: 'player_offline', playerId: conn.playerId });
     removeConnection(conn);
   });

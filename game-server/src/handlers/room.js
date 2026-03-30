@@ -1,11 +1,12 @@
-const { joinRoom, leaveRoom, updatePlayerState, getPlayerState, getConnectionsByRoom } = require('../state');
+const { joinRoom, leaveRoom, updatePlayerState, getPlayerState, getConnectionsByRoom, roomTemplates } = require('../state');
 const { broadcastToRoom, broadcastToAll, sendTo } = require('../broadcast');
+const decorEngine = require('../modules/decorEngine');
 
 const SPAWN = { x: 6, y: 6 }; // matches client/rooms/default.json spawnPoint
 const ROOM_BOUNDS = { w: 12, h: 12 }; // matches default.json width/height
 
 async function handleJoinRoom(conn, payload) {
-  const { roomId, avatarUrl } = payload;
+  const { roomId, avatarUrl, template } = payload;
 
   // Auto-leave previous room so the player isn't in two rooms at once
   const prevState = getPlayerState(conn.playerId);
@@ -15,7 +16,7 @@ async function handleJoinRoom(conn, payload) {
     broadcastToRoom(oldRoomId, { type: 'player_left', playerId: conn.playerId });
   }
 
-  joinRoom(conn, roomId, SPAWN.x, SPAWN.y, avatarUrl);
+  joinRoom(conn, roomId, SPAWN.x, SPAWN.y, avatarUrl, template);
   broadcastToAll({ type: 'player_room_changed', playerId: conn.playerId, displayName: conn.displayName, roomId }, conn.playerId);
 
   // Build snapshot of everyone now in the room (including the joiner)
@@ -36,12 +37,15 @@ async function handleJoinRoom(conn, payload) {
   }
 
   // Send current room state to the joining player
+  // TODO(persistence): replace `template` + `furniture: []` with a full room document
+  // fetched from DynamoDB by roomId. The room doc should include: template, furniture[],
+  // spawnPoint, width, height. Client will render directly from that instead of loading
+  // a static /rooms/*.json. furniture[] format: [{ itemId, x, y, rotation? }]
   sendTo(conn, {
     type: 'room_state',
     players,
-    // B — replace [] with: await decorEngine.getRoomFurniture(roomId)
-    // Returns: [{ itemId, x, y, rotation? }]
-    furniture: [],
+    furniture: await decorEngine.getRoomFurniture(roomId),
+    template: roomTemplates.get(roomId) || 'default',
   });
 
   // Notify other players in the room
@@ -73,9 +77,13 @@ async function handleMove(conn, payload) {
   const state = getPlayerState(conn.playerId);
   if (!state) return;
 
-  // Basic bounds check — B can extend this with walkability
+  // Basic bounds check
   const nx = Math.max(0, Math.min(ROOM_BOUNDS.w - 1, x));
   const ny = Math.max(0, Math.min(ROOM_BOUNDS.h - 1, y));
+
+  // B's walkability check — blocked by furniture
+  const walkable = await decorEngine.isWalkable(state.roomId, nx, ny);
+  if (!walkable) return;
 
   updatePlayerState(conn.playerId, { x: nx, y: ny, direction });
 

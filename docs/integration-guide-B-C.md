@@ -71,7 +71,7 @@ AWS SDK is already installed (`@aws-sdk/client-dynamodb`, `@aws-sdk/lib-dynamodb
 - 12×12 tiles, each tile is a 32px cell
 - Tiles 0,0 through 11,11 (origin top-left)
 - Wall tiles are row 0, col 0, col 11 (see `client/rooms/default.json` for full tileMap)
-- Players cannot walk onto wall tiles — A currently does a bounds check (0–11) only; B should add walkability
+- Players cannot walk onto wall tiles — A does a bounds check (0–11) and calls `decorEngine.isWalkable(roomId, x, y)` which B implements
 
 ### Furniture items (from `client/manifest.json`)
 
@@ -153,25 +153,22 @@ module.exports = {
 };
 ```
 
-### Where A calls into B
+### Where A calls into B (all already wired — B just implements the module)
 
 **`handlers/room.js` — `handleJoinRoom`:**
 ```javascript
-// Current (stub fallback):
-furniture: [],
-
-// B replaces with:
 furniture: await decorEngine.getRoomFurniture(roomId),
+// Stub returns [] — B replaces with a DynamoDB query
 ```
 
-**`handlers/room.js` — `handleMove`** (A will hook this once B ships `isWalkable`):
+**`handlers/room.js` — `handleMove`:**
 ```javascript
-// Add after bounds check:
 const walkable = await decorEngine.isWalkable(state.roomId, nx, ny);
 if (!walkable) return; // silently drop — client is optimistic anyway
+// Stub returns true — B replaces with furniture collision check
 ```
 
-**`handlers/furniture.js`** — already wired, no changes needed:
+**`handlers/furniture.js`** — thin proxies, no changes needed:
 ```javascript
 async function handlePlaceFurniture(conn, payload) {
   return decorEngine.placeFurniture(conn, payload);  // B's code runs here
@@ -323,17 +320,16 @@ async function removeFriend(conn, payload) { }
 module.exports = { createPlayer, sit, stand, chat, addFriend, removeFriend };
 ```
 
-### Where A calls into C
+### Where A calls into C (all already wired — C just implements the module)
 
 **`handlers/character.js` — after avatar generation:**
 ```javascript
 await socialEngine.createPlayer(conn.playerId, conn.displayName, avatarUrl);
 ```
 
-**`handlers/social.js`** — already wired:
+**`handlers/social.js`** — thin proxies, no changes needed:
 ```javascript
 async function handleSit(conn, payload) {
-  const socialEngine = require('../modules/socialEngine');
   return socialEngine.sit(conn, payload);   // C's code runs here
 }
 // ...same for stand, chat, addFriend, removeFriend
