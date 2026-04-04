@@ -1,12 +1,42 @@
 // decorEngine.js — stub for B's furniture/decor module
 // See docs/integration-guide-B-C.md for full spec
 
+const { randomUUID } = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, QueryCommand, GetCommand, PutCommand, UpdateCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, QueryCommand, GetCommand, TransactWriteCommand } = require('@aws-sdk/lib-dynamodb');
 const { broadcastToRoom, sendTo } = require('../broadcast');
+const { getPlayerState } = require('../state');
 const manifest = require('../../../client/manifest.json');
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+
+// Room grid bounds (0–ROOM_MAX inclusive, matching default.json 12×12 grid)
+const ROOM_MAX = 11;
+
+/**
+ * Returns true if the DynamoDB error is a transaction cancellation,
+ * meaning at least one condition expression failed.
+ */
+function isTxCancelled(err) {
+  return err.name === 'TransactionCanceledException';
+}
+
+/**
+ * Returns true if the player is currently present in the given room.
+ * Used to gate all furniture mutations — players can only modify rooms they are in.
+ */
+function isPlayerInRoom(conn, roomId) {
+  const state = getPlayerState(conn.playerId);
+  return state?.roomId === roomId;
+}
+
+/**
+ * Returns true if the player owns the room.
+ * By convention, roomId equals the owner's Cognito sub (playerId).
+ */
+function isRoomOwner(conn, roomId) {
+  return conn.playerId === roomId;
+}
 
 // In-memory blocked-tile cache: roomId → Set of "x_y" strings
 const blockedTiles = new Map();
@@ -89,6 +119,16 @@ async function placeFurniture(conn, payload) {
   const { roomId, itemId, x, y, rotation = 0 } = payload;
   if (!roomId || !itemId || x == null || y == null) return;
 
+  if (!isPlayerInRoom(conn, roomId)) {
+    sendTo(conn, { type: 'error', payload: { code: 'FORBIDDEN', message: 'You are not in this room.' } });
+    return;
+  }
+
+  if (!isRoomOwner(conn, roomId)) {
+    sendTo(conn, { type: 'error', payload: { code: 'FORBIDDEN', message: 'Only the room owner can place furniture.' } });
+    return;
+  }
+
   // Validate item exists in manifest
   const meta = manifest.furniture[itemId];
   if (!meta) {
@@ -102,7 +142,7 @@ async function placeFurniture(conn, payload) {
   // Bounds check — every tile must be within 0–11
   for (const tile of footprint) {
     const [tx, ty] = tile.split('_').map(Number);
-    if (tx < 0 || tx > 11 || ty < 0 || ty > 11) {
+    if (tx < 0 || tx > ROOM_MAX || ty < 0 || ty > ROOM_MAX) {
       sendTo(conn, { type: 'error', payload: { code: 'OUT_OF_BOUNDS', message: 'Furniture does not fit within the room.' } });
       return;
     }
@@ -117,22 +157,43 @@ async function placeFurniture(conn, payload) {
     }
   }
 
-  const instanceId = crypto.randomUUID();
+  const instanceId = randomUUID();
 
-  // Persist to DynamoDB
-  await ddb.send(new PutCommand({
-    TableName: process.env.TABLE_INTERACTIONS,
-    Item: {
-      PK: `ROOM#${roomId}`,
-      SK: `FURNITURE#${instanceId}`,
-      itemId,
-      x,
-      y,
-      rotation,
-      placedBy: conn.playerId,
-      placedAt: new Date().toISOString(),
-    },
-  }));
+  // Atomically write the furniture record and a TILE# lock for every tile it occupies.
+  // attribute_not_exists on each tile lock ensures no two items can claim the same tile,
+  // even across concurrent requests hitting different server instances.
+  try {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        {
+          Put: {
+            TableName: process.env.TABLE_INTERACTIONS,
+            Item: {
+              PK: `ROOM#${roomId}`,
+              SK: `FURNITURE#${instanceId}`,
+              itemId, x, y, rotation,
+              placedBy: conn.playerId,
+              placedAt: new Date().toISOString(),
+            },
+            ConditionExpression: 'attribute_not_exists(PK)',
+          },
+        },
+        ...[...footprint].map(tile => ({
+          Put: {
+            TableName: process.env.TABLE_INTERACTIONS,
+            Item: { PK: `ROOM#${roomId}`, SK: `TILE#${tile}`, instanceId },
+            ConditionExpression: 'attribute_not_exists(PK)',
+          },
+        })),
+      ],
+    }));
+  } catch (err) {
+    if (isTxCancelled(err)) {
+      sendTo(conn, { type: 'error', payload: { code: 'TILE_OCCUPIED', message: 'One or more tiles are already occupied.' } });
+      return;
+    }
+    throw err;
+  }
 
   // Update cache and broadcast only after successful write
   cacheAdd(roomId, item);
@@ -152,7 +213,17 @@ async function moveFurniture(conn, payload) {
   const { roomId, instanceId, x, y } = payload;
   if (!roomId || !instanceId || x == null || y == null) return;
 
-  // Fetch existing record for ownership check and current footprint
+  if (!isPlayerInRoom(conn, roomId)) {
+    sendTo(conn, { type: 'error', payload: { code: 'FORBIDDEN', message: 'You are not in this room.' } });
+    return;
+  }
+
+  if (!isRoomOwner(conn, roomId)) {
+    sendTo(conn, { type: 'error', payload: { code: 'FORBIDDEN', message: 'Only the room owner can move furniture.' } });
+    return;
+  }
+
+  // Fetch existing record for current footprint
   const existing = await ddb.send(new GetCommand({
     TableName: process.env.TABLE_INTERACTIONS,
     Key: {
@@ -168,11 +239,6 @@ async function moveFurniture(conn, payload) {
 
   const item = existing.Item;
 
-  if (item.placedBy !== conn.playerId) {
-    sendTo(conn, { type: 'error', payload: { code: 'FORBIDDEN', message: 'You did not place this item.' } });
-    return;
-  }
-
   // No-op if position unchanged
   if (item.x === x && item.y === y) return;
 
@@ -183,7 +249,7 @@ async function moveFurniture(conn, payload) {
   // Bounds check
   for (const tile of newFootprint) {
     const [tx, ty] = tile.split('_').map(Number);
-    if (tx < 0 || tx > 11 || ty < 0 || ty > 11) {
+    if (tx < 0 || tx > ROOM_MAX || ty < 0 || ty > ROOM_MAX) {
       sendTo(conn, { type: 'error', payload: { code: 'OUT_OF_BOUNDS', message: 'Furniture does not fit within the room.' } });
       return;
     }
@@ -198,20 +264,45 @@ async function moveFurniture(conn, payload) {
     }
   }
 
-  // Persist new position
-  await ddb.send(new UpdateCommand({
-    TableName: process.env.TABLE_INTERACTIONS,
-    Key: {
-      PK: `ROOM#${roomId}`,
-      SK: `FURNITURE#${instanceId}`,
-    },
-    UpdateExpression: 'SET x = :x, y = :y, updatedAt = :updatedAt',
-    ExpressionAttributeValues: {
-      ':x': x,
-      ':y': y,
-      ':updatedAt': new Date().toISOString(),
-    },
-  }));
+  // Only tiles that are newly occupied need lock writes; tiles being freed need deletions.
+  // Shared tiles (in both footprints) are left untouched.
+  const tilesToAdd    = [...newFootprint].filter(t => !oldFootprint.has(t));
+  const tilesToRemove = [...oldFootprint].filter(t => !newFootprint.has(t));
+
+  try {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        {
+          Update: {
+            TableName: process.env.TABLE_INTERACTIONS,
+            Key: { PK: `ROOM#${roomId}`, SK: `FURNITURE#${instanceId}` },
+            UpdateExpression: 'SET x = :x, y = :y, updatedAt = :updatedAt',
+            ExpressionAttributeValues: { ':x': x, ':y': y, ':updatedAt': new Date().toISOString() },
+            ConditionExpression: 'attribute_exists(PK)',
+          },
+        },
+        ...tilesToAdd.map(tile => ({
+          Put: {
+            TableName: process.env.TABLE_INTERACTIONS,
+            Item: { PK: `ROOM#${roomId}`, SK: `TILE#${tile}`, instanceId },
+            ConditionExpression: 'attribute_not_exists(PK)',
+          },
+        })),
+        ...tilesToRemove.map(tile => ({
+          Delete: {
+            TableName: process.env.TABLE_INTERACTIONS,
+            Key: { PK: `ROOM#${roomId}`, SK: `TILE#${tile}` },
+          },
+        })),
+      ],
+    }));
+  } catch (err) {
+    if (isTxCancelled(err)) {
+      sendTo(conn, { type: 'error', payload: { code: 'TILE_OCCUPIED', message: 'One or more tiles are already occupied.' } });
+      return;
+    }
+    throw err;
+  }
 
   // Update cache only after successful write
   cacheRemove(roomId, { itemId: item.itemId, x: item.x, y: item.y, rotation });
@@ -224,12 +315,22 @@ async function rotateFurniture(conn, payload) {
   const { roomId, instanceId, rotation } = payload;
   if (!roomId || !instanceId || rotation == null) return;
 
+  if (!isPlayerInRoom(conn, roomId)) {
+    sendTo(conn, { type: 'error', payload: { code: 'FORBIDDEN', message: 'You are not in this room.' } });
+    return;
+  }
+
+  if (!isRoomOwner(conn, roomId)) {
+    sendTo(conn, { type: 'error', payload: { code: 'FORBIDDEN', message: 'Only the room owner can rotate furniture.' } });
+    return;
+  }
+
   if (![0, 90, 180, 270].includes(rotation)) {
     sendTo(conn, { type: 'error', payload: { code: 'INVALID_ROTATION', message: 'Rotation must be 0, 90, 180, or 270.' } });
     return;
   }
 
-  // Fetch existing record for ownership check and current footprint
+  // Fetch existing record for current footprint
   const existing = await ddb.send(new GetCommand({
     TableName: process.env.TABLE_INTERACTIONS,
     Key: {
@@ -245,11 +346,6 @@ async function rotateFurniture(conn, payload) {
 
   const item = existing.Item;
 
-  if (item.placedBy !== conn.playerId) {
-    sendTo(conn, { type: 'error', payload: { code: 'FORBIDDEN', message: 'You did not place this item.' } });
-    return;
-  }
-
   // No-op if rotation unchanged
   if ((item.rotation ?? 0) === rotation) return;
 
@@ -259,7 +355,7 @@ async function rotateFurniture(conn, payload) {
   // Bounds check
   for (const tile of newFootprint) {
     const [tx, ty] = tile.split('_').map(Number);
-    if (tx < 0 || tx > 11 || ty < 0 || ty > 11) {
+    if (tx < 0 || tx > ROOM_MAX || ty < 0 || ty > ROOM_MAX) {
       sendTo(conn, { type: 'error', payload: { code: 'OUT_OF_BOUNDS', message: 'Rotated furniture does not fit within the room.' } });
       return;
     }
@@ -274,19 +370,43 @@ async function rotateFurniture(conn, payload) {
     }
   }
 
-  // Persist new rotation
-  await ddb.send(new UpdateCommand({
-    TableName: process.env.TABLE_INTERACTIONS,
-    Key: {
-      PK: `ROOM#${roomId}`,
-      SK: `FURNITURE#${instanceId}`,
-    },
-    UpdateExpression: 'SET rotation = :rotation, updatedAt = :updatedAt',
-    ExpressionAttributeValues: {
-      ':rotation': rotation,
-      ':updatedAt': new Date().toISOString(),
-    },
-  }));
+  const tilesToAdd    = [...newFootprint].filter(t => !oldFootprint.has(t));
+  const tilesToRemove = [...oldFootprint].filter(t => !newFootprint.has(t));
+
+  try {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        {
+          Update: {
+            TableName: process.env.TABLE_INTERACTIONS,
+            Key: { PK: `ROOM#${roomId}`, SK: `FURNITURE#${instanceId}` },
+            UpdateExpression: 'SET rotation = :rotation, updatedAt = :updatedAt',
+            ExpressionAttributeValues: { ':rotation': rotation, ':updatedAt': new Date().toISOString() },
+            ConditionExpression: 'attribute_exists(PK)',
+          },
+        },
+        ...tilesToAdd.map(tile => ({
+          Put: {
+            TableName: process.env.TABLE_INTERACTIONS,
+            Item: { PK: `ROOM#${roomId}`, SK: `TILE#${tile}`, instanceId },
+            ConditionExpression: 'attribute_not_exists(PK)',
+          },
+        })),
+        ...tilesToRemove.map(tile => ({
+          Delete: {
+            TableName: process.env.TABLE_INTERACTIONS,
+            Key: { PK: `ROOM#${roomId}`, SK: `TILE#${tile}` },
+          },
+        })),
+      ],
+    }));
+  } catch (err) {
+    if (isTxCancelled(err)) {
+      sendTo(conn, { type: 'error', payload: { code: 'TILE_OCCUPIED', message: 'One or more tiles are already occupied.' } });
+      return;
+    }
+    throw err;
+  }
 
   // Update cache only after successful write
   cacheRemove(roomId, { itemId: item.itemId, x: item.x, y: item.y, rotation: item.rotation ?? 0 });
@@ -299,7 +419,17 @@ async function removeFurniture(conn, payload) {
   const { roomId, instanceId } = payload;
   if (!roomId || !instanceId) return;
 
-  // Fetch existing record to get footprint info and verify ownership
+  if (!isPlayerInRoom(conn, roomId)) {
+    sendTo(conn, { type: 'error', payload: { code: 'FORBIDDEN', message: 'You are not in this room.' } });
+    return;
+  }
+
+  if (!isRoomOwner(conn, roomId)) {
+    sendTo(conn, { type: 'error', payload: { code: 'FORBIDDEN', message: 'Only the room owner can remove furniture.' } });
+    return;
+  }
+
+  // Fetch existing record to get footprint info
   const existing = await ddb.send(new GetCommand({
     TableName: process.env.TABLE_INTERACTIONS,
     Key: {
@@ -315,21 +445,29 @@ async function removeFurniture(conn, payload) {
 
   const item = existing.Item;
 
-  if (item.placedBy !== conn.playerId) {
-    sendTo(conn, { type: 'error', payload: { code: 'FORBIDDEN', message: 'You did not place this item.' } });
-    return;
-  }
+  const itemShape = { itemId: item.itemId, x: item.x, y: item.y, rotation: item.rotation ?? 0 };
+  const footprint = getFootprint(itemShape);
 
-  // Evict from cache before deleting
-  cacheRemove(roomId, { itemId: item.itemId, x: item.x, y: item.y, rotation: item.rotation ?? 0 });
-
-  await ddb.send(new DeleteCommand({
-    TableName: process.env.TABLE_INTERACTIONS,
-    Key: {
-      PK: `ROOM#${roomId}`,
-      SK: `FURNITURE#${instanceId}`,
-    },
+  // Delete the furniture record and all its tile locks atomically
+  await ddb.send(new TransactWriteCommand({
+    TransactItems: [
+      {
+        Delete: {
+          TableName: process.env.TABLE_INTERACTIONS,
+          Key: { PK: `ROOM#${roomId}`, SK: `FURNITURE#${instanceId}` },
+        },
+      },
+      ...[...footprint].map(tile => ({
+        Delete: {
+          TableName: process.env.TABLE_INTERACTIONS,
+          Key: { PK: `ROOM#${roomId}`, SK: `TILE#${tile}` },
+        },
+      })),
+    ],
   }));
+
+  // Evict from cache only after successful write
+  cacheRemove(roomId, itemShape);
 
   broadcastToRoom(roomId, { type: 'furniture_removed', instanceId });
 }
