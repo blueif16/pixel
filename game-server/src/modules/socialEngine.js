@@ -93,6 +93,26 @@ async function stand(conn, _payload) {
   });
 }
 
+// ── Emotes ───────────────────────────────────────────────────────
+
+const VALID_EMOTES = ['wave', 'eat', 'laugh', 'sleep'];
+
+async function emote(conn, payload) {
+  const ps = getPlayerState(conn.playerId);
+  if (!ps) return;
+  const { emote: emoteName } = payload;
+  if (!VALID_EMOTES.includes(emoteName)) return;
+  // Transient — broadcast so others see it, don't persist as pose
+  broadcastToRoom(ps.roomId, {
+    type: 'player_moved',
+    playerId: conn.playerId,
+    x: ps.x,
+    y: ps.y,
+    direction: ps.direction,
+    pose: emoteName,
+  });
+}
+
 // ── Chat ─────────────────────────────────────────────────────────
 
 const PROFANITY_LIST = ['badword1', 'badword2']; // extend as needed
@@ -187,7 +207,6 @@ async function removeFriend(conn, payload) {
 
 /**
  * Call this when a player disconnects so their seat is released.
- * A should call socialEngine.handleDisconnect(playerId) from removeConnection.
  */
 async function handleDisconnect(playerId) {
   const ps = getPlayerState(playerId);
@@ -217,6 +236,7 @@ module.exports = {
   createPlayer,
   sit,
   stand,
+  emote,
   chat,
   addFriend,
   removeFriend,
