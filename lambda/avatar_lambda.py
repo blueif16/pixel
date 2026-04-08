@@ -61,30 +61,48 @@ Identical proportions, colors, and style in every cell. Cells clearly separated 
 # ===================================================================
 # Image generation
 # ===================================================================
+MAX_RETRIES = 3
+RETRY_DELAYS = [5, 15, 30]  # seconds between retries
+
 def generate_image(prompt: str) -> Image.Image:
-    """Call Gemini gemini-3-pro-image-preview at 4K. Returns a PIL Image."""
+    """Call Gemini with retries for transient errors. Returns a PIL Image."""
     logger.info(f"  model={IMAGE_GEN_MODEL}  size=4K  aspect=1:1")
     client = genai.Client(api_key=GOOGLE_API_KEY)
 
-    response = client.models.generate_content(
-        model=IMAGE_GEN_MODEL,
-        contents=[prompt],
-        config=types.GenerateContentConfig(
-            response_modalities=["IMAGE"],
-            image_config=types.ImageConfig(
-                aspect_ratio="1:1",
-                image_size="4K",
-            ),
-        ),
-    )
+    last_error = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            logger.info(f"  Gemini request attempt {attempt}/{MAX_RETRIES}")
+            response = client.models.generate_content(
+                model=IMAGE_GEN_MODEL,
+                contents=[prompt],
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                    image_config=types.ImageConfig(
+                        aspect_ratio="1:1",
+                        image_size="4K",
+                    ),
+                ),
+            )
 
-    for part in response.parts:
-        if part.inline_data:
-            img = Image.open(io.BytesIO(part.inline_data.data))
-            logger.info(f"  received: {img.size}  mode={img.mode}")
-            return img
+            for part in response.parts:
+                if part.inline_data:
+                    img = Image.open(io.BytesIO(part.inline_data.data))
+                    logger.info(f"  received: {img.size}  mode={img.mode}")
+                    return img
 
-    raise RuntimeError("Gemini returned no image data")
+            raise RuntimeError("Gemini returned no image data")
+
+        except Exception as e:
+            last_error = e
+            err_str = str(e)
+            is_retryable = any(code in err_str for code in ["503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "overloaded"])
+            if is_retryable and attempt < MAX_RETRIES:
+                delay = RETRY_DELAYS[attempt - 1]
+                logger.warning(f"  Attempt {attempt} failed (retryable): {err_str[:120]}. Retrying in {delay}s...")
+                time.sleep(delay)
+            else:
+                raise last_error
 
 
 # ===================================================================
