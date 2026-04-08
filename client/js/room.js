@@ -11,7 +11,7 @@ import { startLoop } from './render.js';
 import { fetchCharacters } from './characters.js';
 import { connectWS } from './network.js';
 import { handleCanvasClickGame, initGameLoop } from './game.js';
-import { furnDragStart, furnDragMove, furnDragEnd } from './furniture.js';
+import { furnDragStart, furnDragMove, furnDragEnd, furnPreviewMove } from './furniture.js';
 
 export async function loadTemplate(id) {
   const resp = await fetch(`/rooms/${id}.json`);
@@ -53,7 +53,9 @@ export async function switchTemplate(delta) {
   setPlayer({ x: sp.x, y: sp.y, direction: 'down', pose: 'idle' });
   setWalkIdx(0);
   sizeCanvas();
-  document.getElementById('template-label').textContent = `${t.name}  [${newIdx + 1}/${ROOM_TEMPLATES.length}]`;
+  const myRooms = JSON.parse(localStorage.getItem('pixelMyRooms') || '{}');
+  const badge = myRooms[t.id] ? ` ★${myRooms[t.id]}` : '';
+  document.getElementById('template-label').textContent = `${t.name}${badge}  [${newIdx + 1}/${ROOM_TEMPLATES.length}]`;
   log(`Room: ${t.name}`, 'ok');
 }
 
@@ -61,27 +63,20 @@ export async function enterRoom(img) {
   setSpriteSheet(img);
   setIsLive(false);
 
-  // Inject "★ My Room" if the player has a previously decorated room
-  const myRoomData = JSON.parse(localStorage.getItem('pixelMyRoom') || 'null');
-  if (myRoomData && myRoomData.count > 0 && !ROOM_TEMPLATES.some(t => t._isMyRoom)) {
-    const baseName = ROOM_TEMPLATES.find(t => t.id === myRoomData.template)?.name || myRoomData.template;
-    ROOM_TEMPLATES.unshift({ id: myRoomData.template, name: `★ My Room (${baseName})`, _isMyRoom: true });
-  }
-
   const saved = localStorage.getItem('pixelRoomTemplate');
   const idx = ROOM_TEMPLATES.findIndex(t => t.id === saved);
   setTemplateIdx(idx >= 0 ? idx : 0);
 
-  if (ROOM_TEMPLATES[templateIdx].id !== 'default') {
-    try { await loadTemplate(ROOM_TEMPLATES[templateIdx].id); }
-    catch (e) { setTemplateIdx(0); log(`Room load failed, using default`, 'error'); }
-  }
+  try { await loadTemplate(ROOM_TEMPLATES[templateIdx].id); }
+  catch (e) { if (templateIdx !== 0) { setTemplateIdx(0); await loadTemplate(ROOM_TEMPLATES[0].id); } }
 
+  const myRooms = JSON.parse(localStorage.getItem('pixelMyRooms') || '{}');
   const t = ROOM_TEMPLATES[templateIdx];
+  const badge = myRooms[t.id] ? ` ★${myRooms[t.id]}` : '';
   document.getElementById('template-prev').classList.add('visible');
   document.getElementById('template-next').classList.add('visible');
   document.getElementById('template-label').classList.add('visible');
-  document.getElementById('template-label').textContent = `${t.name}  [${templateIdx + 1}/${ROOM_TEMPLATES.length}]`;
+  document.getElementById('template-label').textContent = `${t.name}${badge}  [${templateIdx + 1}/${ROOM_TEMPLATES.length}]`;
   log(`Rooms: ${ROOM_TEMPLATES.map((r,i) => (i===templateIdx?'▶ ':'')+r.name).join(' · ')}`, 'ok');
 
   const sp = ROOM.spawnPoint || { x: 6, y: 6 };
@@ -121,15 +116,16 @@ export function enterGame() {
   log('Live mode', 'ok');
 
   const joinAndShow = (socket) => {
-    setCurrentRoomId(authState.playerId);
     const chosenTemplate = ROOM_TEMPLATES[templateIdx].id;
-    socket.send(JSON.stringify({ type: 'join_room', payload: { roomId: authState.playerId, avatarUrl: gameState.avatarUrl, template: chosenTemplate } }));
+    const compositeRoomId = `${authState.playerId}:${chosenTemplate}`;
+    setCurrentRoomId(compositeRoomId);
+    socket.send(JSON.stringify({ type: 'join_room', payload: { roomId: compositeRoomId, avatarUrl: gameState.avatarUrl } }));
     socket.send(JSON.stringify({ type: 'get_online_players', payload: {} }));
     setTimeout(() => {
       showScreen('game-screen');
       const cvs = document.getElementById('game-canvas');
       cvs.addEventListener('mousedown', (e) => { if (furnDragStart(e, cvs)) e.preventDefault(); });
-      document.addEventListener('mousemove', (e) => furnDragMove(e));
+      document.addEventListener('mousemove', (e) => { furnDragMove(e); furnPreviewMove(e, cvs); });
       document.addEventListener('mouseup', (e) => { if (furnDrag) furnDragEnd(e, cvs); });
       cvs.addEventListener('click', handleCanvasClickGame);
       initGameLoop();

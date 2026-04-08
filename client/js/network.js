@@ -11,7 +11,12 @@ import { enterRoom } from './room.js';
 import { renderOnlinePanel } from './game.js';
 import { renderGame } from './game.js';
 
+let _reconnectTimer = null;
+let _lastOnOpen = null;
+
 export function connectWS(onOpen) {
+  if (onOpen) _lastOnOpen = onOpen;
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   try {
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${WS_PROTOCOL}//${window.location.host}/ws?token=${encodeURIComponent(authState.jwt)}`;
@@ -31,6 +36,21 @@ export function connectWS(onOpen) {
       if (e.code === 4001) {
         alert('Authentication failed. Please sign in again.');
         showScreen('auth-screen');
+        return;
+      }
+      // Auto-reconnect after unexpected close (not auth failure, not intentional)
+      if (authState.jwt && !_reconnectTimer) {
+        log('Reconnecting in 3s…');
+        _reconnectTimer = setTimeout(() => {
+          _reconnectTimer = null;
+          connectWS((sock) => {
+            // Re-join the room we were in
+            if (currentRoomId) {
+              sock.send(JSON.stringify({ type: 'join_room', payload: { roomId: currentRoomId, avatarUrl: gameState.avatarUrl || '' } }));
+              sock.send(JSON.stringify({ type: 'get_online_players', payload: {} }));
+            }
+          });
+        }, 3000);
       }
     };
   } catch (err) { log(`WS failed: ${err.message}`, 'error'); }
@@ -44,14 +64,16 @@ function handleWSMessage(msg) {
       liveFurniture.forEach(f => ensureFurnitureSprite(f.itemId));
       if (msg.players) msg.players.forEach(p => { gameState.players[p.playerId] = p; });
       gameState.self = gameState.players[authState.playerId] || null;
-      // Remember decorated room for "My Room" in room picker
-      if ((msg.furniture || []).length > 0) {
-        localStorage.setItem('pixelMyRoom', JSON.stringify({
-          template: msg.template || ROOM_TEMPLATES[templateIdx]?.id || 'default',
-          count: msg.furniture.length,
-        }));
-      } else {
-        localStorage.removeItem('pixelMyRoom');
+      // Remember which templates this user has decorated
+      {
+        const tpl = msg.template || ROOM_TEMPLATES[templateIdx]?.id;
+        const myRooms = JSON.parse(localStorage.getItem('pixelMyRooms') || '{}');
+        if ((msg.furniture || []).length > 0) {
+          myRooms[tpl] = msg.furniture.length;
+        } else {
+          delete myRooms[tpl];
+        }
+        localStorage.setItem('pixelMyRooms', JSON.stringify(myRooms));
       }
       if (msg.template && msg.template !== ROOM_TEMPLATES[templateIdx]?.id) {
         const idx = ROOM_TEMPLATES.findIndex(t => t.id === msg.template);
@@ -84,6 +106,17 @@ function handleWSMessage(msg) {
       }
       break;
     }
+    case 'character_generating':
+      document.getElementById('gen-status').textContent = msg.payload?.message || 'Generating…';
+      log(`Gen: ${msg.payload?.message}`, 'ok');
+      break;
+    case 'character_error':
+      clearInterval(genTimer);
+      document.getElementById('gen-overlay').classList.remove('active');
+      document.getElementById('gen-btn').disabled = false;
+      log(`Gen failed: ${msg.payload?.message}`, 'error');
+      alert(`Character generation failed:\n${msg.payload?.message || 'Unknown error'}\n\nPlease try again.`);
+      break;
     case 'character_created':
       clearInterval(genTimer);
       document.getElementById('gen-overlay').classList.remove('active');
@@ -119,6 +152,29 @@ function handleWSMessage(msg) {
     case 'furniture_removed':
       setLiveFurniture(liveFurniture.filter(f => f.instanceId !== msg.instanceId));
       break;
+    case 'player_sat': {
+      const p = gameState.players[msg.playerId];
+      if (p) {
+        p.x = msg.x; p.y = msg.y;
+        p.pose = 'sitting';
+      }
+      if (msg.playerId === authState.playerId && gameState.self) {
+        gameState.self.x = msg.x;
+        gameState.self.y = msg.y;
+        gameState.self.pose = 'sitting';
+        gameState.pose = 'sitting';
+      }
+      break;
+    }
+    case 'player_stood': {
+      const p = gameState.players[msg.playerId];
+      if (p) p.pose = 'standing';
+      if (msg.playerId === authState.playerId && gameState.self) {
+        gameState.self.pose = 'standing';
+        gameState.pose = 'idle';
+      }
+      break;
+    }
     case 'chat_message':
       handleChatMessage(msg);
       break;
