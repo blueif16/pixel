@@ -1,6 +1,6 @@
 const { handleJoinRoom, handleLeaveRoom, handleMove } = require('./handlers/room');
 const { handlePlaceFurniture, handleMoveFurniture, handleRotateFurniture, handleRemoveFurniture } = require('./handlers/furniture');
-const { handleSit, handleStand, handleChat, handleAddFriend, handleRemoveFriend } = require('./handlers/social');
+const { handleSit, handleStand, handleEmote, handleChat, handleAddFriend, handleRemoveFriend } = require('./handlers/social');
 const { handleCreateCharacter } = require('./handlers/character');
 const { handleGetOnlinePlayers } = require('./handlers/online');
 const { sendTo } = require('./broadcast');
@@ -19,6 +19,7 @@ const handlers = {
   // C — social: plug handleSit/handleStand/handleChat etc. into socialEngine
   sit: handleSit,
   stand: handleStand,
+  emote: handleEmote,
   chat: handleChat,
   add_friend: handleAddFriend,
   remove_friend: handleRemoveFriend,

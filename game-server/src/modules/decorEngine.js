@@ -6,7 +6,13 @@ const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, QueryCommand, GetCommand, TransactWriteCommand } = require('@aws-sdk/lib-dynamodb');
 const { broadcastToRoom, sendTo } = require('../broadcast');
 const { getPlayerState } = require('../state');
-const manifest = require('../../../client/manifest.json');
+// In Docker, manifest.json is at /app/manifest.json; in dev, fall back to client/
+let manifest;
+try {
+  manifest = require('../../manifest.json');
+} catch {
+  manifest = require('../../../client/manifest.json');
+}
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -32,10 +38,12 @@ function isPlayerInRoom(conn, roomId) {
 
 /**
  * Returns true if the player owns the room.
- * By convention, roomId equals the owner's Cognito sub (playerId).
+ * Composite roomId format: "ownerId:templateId"
  */
 function isRoomOwner(conn, roomId) {
-  return conn.playerId === roomId;
+  const idx = roomId.lastIndexOf(':');
+  const ownerId = idx >= 0 ? roomId.slice(0, idx) : roomId;
+  return conn.playerId === ownerId;
 }
 
 // In-memory blocked-tile cache: roomId → Set of "x_y" strings

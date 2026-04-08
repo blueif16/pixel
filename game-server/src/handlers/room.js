@@ -1,12 +1,20 @@
-const { joinRoom, leaveRoom, updatePlayerState, getPlayerState, getConnectionsByRoom, roomTemplates } = require('../state');
+const { joinRoom, leaveRoom, updatePlayerState, getPlayerState, getConnectionsByRoom } = require('../state');
 const { broadcastToRoom, broadcastToAll, sendTo } = require('../broadcast');
 const decorEngine = require('../modules/decorEngine');
 
 const SPAWN = { x: 6, y: 6 }; // matches client/rooms/default.json spawnPoint
 const ROOM_BOUNDS = { w: 12, h: 12 }; // matches default.json width/height
 
+// Composite roomId format: "ownerId:templateId" (e.g. "abc123:cafe")
+function parseRoomId(roomId) {
+  const idx = roomId.lastIndexOf(':');
+  if (idx < 0) return { ownerId: roomId, template: 'default' };
+  return { ownerId: roomId.slice(0, idx), template: roomId.slice(idx + 1) };
+}
+
 async function handleJoinRoom(conn, payload) {
-  const { roomId, avatarUrl, template } = payload;
+  const { roomId, avatarUrl } = payload;
+  const { template } = parseRoomId(roomId);
 
   // Auto-leave previous room so the player isn't in two rooms at once
   const prevState = getPlayerState(conn.playerId);
@@ -16,7 +24,7 @@ async function handleJoinRoom(conn, payload) {
     broadcastToRoom(oldRoomId, { type: 'player_left', playerId: conn.playerId });
   }
 
-  joinRoom(conn, roomId, SPAWN.x, SPAWN.y, avatarUrl, template);
+  joinRoom(conn, roomId, SPAWN.x, SPAWN.y, avatarUrl);
   broadcastToAll({ type: 'player_room_changed', playerId: conn.playerId, displayName: conn.displayName, roomId }, conn.playerId);
 
   // Build snapshot of everyone now in the room (including the joiner)
@@ -36,16 +44,11 @@ async function handleJoinRoom(conn, payload) {
     }
   }
 
-  // Send current room state to the joining player
-  // TODO(persistence): replace `template` + `furniture: []` with a full room document
-  // fetched from DynamoDB by roomId. The room doc should include: template, furniture[],
-  // spawnPoint, width, height. Client will render directly from that instead of loading
-  // a static /rooms/*.json. furniture[] format: [{ itemId, x, y, rotation? }]
   sendTo(conn, {
     type: 'room_state',
     players,
     furniture: await decorEngine.getRoomFurniture(roomId),
-    template: roomTemplates.get(roomId) || 'default',
+    template,
   });
 
   // Notify other players in the room

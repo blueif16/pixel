@@ -1,13 +1,6 @@
 const roomConnections = new Map();
 const playerState = new Map();
 const allConnections = new Map();
-// TODO(persistence): roomTemplates is a temporary stand-in.
-// Future: room layout lives in DynamoDB keyed by roomId (= owner's Cognito sub).
-// Replace roomTemplates with a DynamoDB.get(TABLE_ROOMS, { roomId }) call that returns
-// the full room document: { template, furniture[], spawnPoint, width, height }.
-// On join_room, fetch from DynamoDB and send the full room doc in room_state instead of
-// just the template string — client renders from that, not from a static /rooms/*.json file.
-const roomTemplates = new Map(); // roomId → template id (e.g. 'cafe')
 
 function addConnection(conn) {
   allConnections.set(conn.playerId, conn);
@@ -21,7 +14,7 @@ function removeConnection(conn) {
   allConnections.delete(conn.playerId);
 }
 
-function joinRoom(conn, roomId, x, y, avatarUrl, template) {
+function joinRoom(conn, roomId, x, y, avatarUrl) {
   if (!roomConnections.has(roomId)) {
     roomConnections.set(roomId, new Set());
   }
@@ -33,8 +26,6 @@ function joinRoom(conn, roomId, x, y, avatarUrl, template) {
     seatPosition: null,
     avatarUrl,
   });
-  // Only the room owner sets the template (first join or explicit template)
-  if (template) roomTemplates.set(roomId, template);
 }
 
 function leaveRoom(conn) {
@@ -67,5 +58,5 @@ module.exports = {
   addConnection, removeConnection,
   joinRoom, leaveRoom,
   getConnectionsByRoom, getPlayerState, updatePlayerState,
-  allConnections, playerState, roomConnections, roomTemplates
+  allConnections, playerState, roomConnections
 };

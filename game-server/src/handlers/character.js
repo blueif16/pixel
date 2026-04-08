@@ -13,13 +13,22 @@ async function handleCreateCharacter(conn, payload) {
   // Sanitize: cap at 200 chars, wrap with guardrails
   description = `A young person, ${description.slice(0, 200)}`;
 
-  sendTo(conn, { type: 'character_generating', payload: { message: 'Creating your character...' } });
+  console.log(`[character] createCharacter started player=${conn.playerId} desc="${description.slice(0, 60)}..."`);
+  sendTo(conn, { type: 'character_generating', payload: { step: 'generating', message: 'AI is generating your sprite sheet…' } });
 
-  const avatarUrl = await generateAvatar(conn.playerId, description);
+  try {
+    const avatarUrl = await generateAvatar(conn.playerId, description);
+    console.log(`[character] avatar generated player=${conn.playerId} url=${avatarUrl}`);
 
-  await socialEngine.createPlayer(conn.playerId, conn.displayName, avatarUrl);
+    sendTo(conn, { type: 'character_generating', payload: { step: 'saving', message: 'Saving your character…' } });
+    await socialEngine.createPlayer(conn.playerId, conn.displayName, avatarUrl);
+    console.log(`[character] player saved player=${conn.playerId}`);
 
-  sendTo(conn, { type: 'character_created', payload: { avatarUrl, playerId: conn.playerId } });
+    sendTo(conn, { type: 'character_created', payload: { avatarUrl, playerId: conn.playerId } });
+  } catch (err) {
+    console.error(`[character] FAILED player=${conn.playerId}:`, err.message);
+    sendTo(conn, { type: 'character_error', payload: { message: err.message || 'Character generation failed. Please try again.' } });
+  }
 }
 
 module.exports = { handleCreateCharacter };
