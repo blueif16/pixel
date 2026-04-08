@@ -257,7 +257,7 @@ export class PixelSocialStack extends Stack {
       statements: [
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
-          actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:BatchGetItem'],
+          actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:BatchGetItem', 'dynamodb:TransactWriteItems'],
           resources: [
             roomsTable.tableArn,
             playersTable.tableArn,
@@ -332,7 +332,7 @@ export class PixelSocialStack extends Stack {
         S3_BUCKET: assetBucket.bucketName,
         CLOUDFRONT_DOMAIN: distribution.distributionDomainName,
         GOOGLE_API_KEY: 'TODO_REPLACE',
-        IMAGE_GEN_MODEL: 'gemini-2.0-flash-exp',
+        IMAGE_GEN_MODEL: 'gemini-3-pro-image-preview',
       },
     });
 
