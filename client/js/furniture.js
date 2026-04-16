@@ -1,7 +1,9 @@
 import {
   furnEditMode, furnDrag, furnitureMode, liveFurniture, furnPreview,
+  selectedFurnInstance,
   MANIFEST, TILE_SIZE, ROOM, ws, currentRoomId, furnitureImages,
-  setFurnEditMode, setFurnDrag, setFurnitureMode, setFurnPreview, setDragJustEnded
+  setFurnEditMode, setFurnDrag, setFurnitureMode, setFurnPreview, setDragJustEnded,
+  setSelectedFurnInstance
 } from './state.js';
 import { log, loadImage } from './utils.js';
 
@@ -56,6 +58,7 @@ export function toggleFurnitureEdit() {
     if (trash) trash.remove();
     if (picker) picker.remove();
     document.getElementById('game-canvas').style.cursor = '';
+    setSelectedFurnInstance(null);
     log('Furniture mode OFF');
   }
 }
@@ -70,6 +73,7 @@ export function furnDragStart(e, canvasEl) {
     if (!def) continue;
     const gw = def.gridWidth || 1, gh = def.gridHeight || 1;
     if (tx >= f.x && tx < f.x + gw && ty >= f.y && ty < f.y + gh) {
+      setSelectedFurnInstance(f.instanceId);
       const ghost = document.createElement('img');
       ghost.className = 'furn-ghost';
       ghost.src = def.sprite;
@@ -140,6 +144,18 @@ export function furnRotate(direction) {
   const cur = steps.indexOf(furnitureMode.rotation);
   const next = (cur + direction + 4) % 4;
   setFurnitureMode({ ...furnitureMode, rotation: steps[next] });
+}
+
+export function rotatePlacedFurniture(direction) {
+  if (!selectedFurnInstance) return;
+  const f = liveFurniture.find(fi => fi.instanceId === selectedFurnInstance);
+  if (!f) return;
+  const steps = [0, 90, 180, 270];
+  const cur = steps.indexOf(f.rotation ?? 0);
+  const next = steps[(cur + direction + 4) % 4];
+  if (ws?.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'rotate_furniture', payload: { roomId: currentRoomId, instanceId: selectedFurnInstance, rotation: next } }));
+  }
 }
 
 export function furnCancelPreview() {

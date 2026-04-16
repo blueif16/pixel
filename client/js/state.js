@@ -68,6 +68,7 @@ export const TILE_FALLBACK = {
 // Furniture edit state
 export let furnEditMode = false;
 export let furnDrag = null;
+export let selectedFurnInstance = null;
 export let furnPreview = null; // { tileX, tileY } — where to draw the ghost
 export let _dragJustEnded = false;
 export let lastMoveTime = 0;
@@ -103,6 +104,7 @@ export function setSCALE(v) { SCALE = v; }
 export function setTileCanvasCache(v) { tileCanvasCache = v; }
 export function setFurnEditMode(v) { furnEditMode = v; }
 export function setFurnDrag(v) { furnDrag = v; }
+export function setSelectedFurnInstance(v) { selectedFurnInstance = v; }
 export function setFurnPreview(v) { furnPreview = v; }
 export function setDragJustEnded(v) { _dragJustEnded = v; }
 export function setLastMoveTime(v) { lastMoveTime = v; }

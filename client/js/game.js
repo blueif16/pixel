@@ -4,9 +4,9 @@ import {
   gameState, authState, liveFurniture, furnEditMode, furnitureMode, furnPreview,
   onlineState, currentRoomId, ws, spriteCache, tileCanvasCache,
   furnitureImages, _dragJustEnded, lastMoveTime, MOVE_COOLDOWN,
-  gameLoop,
+  gameLoop, selectedFurnInstance,
   setCurrentRoomId, setDragJustEnded, setLastMoveTime, setGameLoop,
-  setFurnitureMode, setFurnPreview, selectedChar
+  setFurnitureMode, setFurnPreview, setSelectedFurnInstance, selectedChar
 } from './state.js';
 import { escapeHtml, log, showScreen } from './utils.js';
 import { fetchCharacters } from './characters.js';
@@ -143,17 +143,30 @@ export function renderGame() {
     const fy = footBY - fh;
     const isLiveItem = !!f.instanceId;
     drawList.push({ sortY: footBY, draw() {
-      if (img) ctx.drawImage(img, fx, fy, fw, fh);
-      else if (def) {
+      if (img) {
+        const rot = f.rotation || 0;
+        if (rot !== 0) {
+          ctx.save();
+          ctx.translate(footCX, footBY - gh * tileSize);
+          ctx.rotate(rot * Math.PI / 180);
+          const origW = (def?.gridWidth || 1) * tileSize * 2;
+          const origH = (def?.gridHeight || 1) * tileSize * 2;
+          ctx.drawImage(img, -origW / 2, -origH / 2, origW, origH);
+          ctx.restore();
+        } else {
+          ctx.drawImage(img, fx, fy, fw, fh);
+        }
+      } else if (def) {
         ctx.fillStyle = '#2a3040'; ctx.fillRect(fx, fy, fw, fh);
         ctx.fillStyle = '#555d73'; ctx.font = '8px monospace';
         ctx.fillText(f.itemId.split('_')[0], fx + 2, fy + 10);
       }
       if (furnEditMode && isLiveItem) {
+        const isSelected = f.instanceId === selectedFurnInstance;
         ctx.save();
-        ctx.strokeStyle = 'rgba(100,180,255,0.6)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = isSelected ? 'rgba(255,200,60,0.9)' : 'rgba(100,180,255,0.6)';
+        ctx.lineWidth = isSelected ? 2 : 1;
+        ctx.setLineDash(isSelected ? [] : [3, 3]);
         ctx.strokeRect(f.x * tileSize, f.y * tileSize, gw * tileSize, gh * tileSize);
         ctx.restore();
       }
@@ -341,7 +354,10 @@ export function handleCanvasClickGame(e) {
     return;
   }
 
-  if (furnEditMode) return;
+  if (furnEditMode && !furnitureMode) {
+    setSelectedFurnInstance(null);
+    return;
+  }
 
   const allFurn = [...(ROOM.furniture||[]), ...liveFurniture];
   for (const f of allFurn) {

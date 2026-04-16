@@ -1,6 +1,6 @@
 import {
   authState, ws, gameState, selectedChar, currentRoomId,
-  ROOM_TEMPLATES, templateIdx, furnDrag, furnitureMode,
+  ROOM_TEMPLATES, templateIdx, furnDrag, furnitureMode, furnEditMode, selectedFurnInstance,
   setCurrentRoomId, setWs
 } from './state.js';
 import { showScreen, log } from './utils.js';
@@ -10,7 +10,7 @@ import { fetchCharacters } from './characters.js';
 import { startGenerate, cancelGenerate } from './generate.js';
 import { enterRoom, exitRoom, enterGame, switchTemplate } from './room.js';
 import { connectWS, toggleChat } from './network.js';
-import { tbAction, furnDragStart, furnDragMove, furnDragEnd, furnPreviewMove, furnRotate, furnCancelPreview } from './furniture.js';
+import { tbAction, furnDragStart, furnDragMove, furnDragEnd, furnPreviewMove, furnRotate, furnCancelPreview, rotatePlacedFurniture } from './furniture.js';
 import { sizeCanvas } from './canvas.js';
 import { initRoomKeyboard } from './movement.js';
 import { initTheme } from './theme.js';
@@ -95,6 +95,12 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { e.preventDefault(); furnRotate(1); return; }
     if (e.key === 'Escape') { e.preventDefault(); furnCancelPreview(); return; }
     return; // block other keys during placement
+  }
+
+  // Rotate selected placed furniture in edit mode
+  if (furnEditMode && selectedFurnInstance) {
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') { e.preventDefault(); rotatePlacedFurniture(-1); return; }
+    if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { e.preventDefault(); rotatePlacedFurniture(1); return; }
   }
 
   const dirMap = {
