@@ -9,7 +9,7 @@ import { log, showScreen, loadImage } from './utils.js';
 import { sizeCanvas } from './canvas.js';
 import { startLoop } from './render.js';
 import { fetchCharacters } from './characters.js';
-import { connectWS } from './network.js';
+import { connectWS, disconnectWS } from './network.js';
 import { handleCanvasClickGame, initGameLoop } from './game.js';
 import { furnDragStart, furnDragMove, furnDragEnd, furnPreviewMove } from './furniture.js';
 
@@ -92,7 +92,7 @@ export async function enterRoom(img) {
 }
 
 export function exitRoom() {
-  if (ws) { ws.close(); setWs(null); }
+  if (ws) { disconnectWS(); ws.close(); setWs(null); }
   if (moveInterval) { clearInterval(moveInterval); setMoveInterval(null); }
   if (gameLoop) { cancelAnimationFrame(gameLoop); setGameLoop(null); }
   setIsLive(false);
@@ -133,7 +133,7 @@ export function enterGame() {
   };
 
   // Always establish a fresh connection when entering the game
-  if (ws) { try { ws.close(); } catch(e) {} setWs(null); }
+  if (ws) { disconnectWS(); try { ws.close(); } catch(e) {} setWs(null); }
   if (authState.jwt) {
     connectWS(joinAndShow);
   }

@@ -13,6 +13,11 @@ import { renderGame } from './game.js';
 
 let _reconnectTimer = null;
 let _lastOnOpen = null;
+let _intentionalClose = false;
+
+export function disconnectWS() {
+  _intentionalClose = true;
+}
 
 export function connectWS(onOpen) {
   if (onOpen) _lastOnOpen = onOpen;
@@ -39,6 +44,7 @@ export function connectWS(onOpen) {
         return;
       }
       // Auto-reconnect after unexpected close (not auth failure, not intentional)
+      if (_intentionalClose) { _intentionalClose = false; return; }
       if (authState.jwt && !_reconnectTimer) {
         log('Reconnecting in 3s…');
         _reconnectTimer = setTimeout(() => {

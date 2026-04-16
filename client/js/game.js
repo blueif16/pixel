@@ -9,6 +9,7 @@ import {
   setFurnitureMode, setFurnPreview, setSelectedFurnInstance, selectedChar
 } from './state.js';
 import { escapeHtml, log, showScreen } from './utils.js';
+import { disconnectWS } from './network.js';
 import { fetchCharacters } from './characters.js';
 
 // Parse composite roomId "ownerId:templateId" into friendly display
@@ -105,7 +106,7 @@ function visitPlayer(roomId) {
 }
 
 export function exitGame() {
-  if (ws) { ws.close(); }
+  if (ws) { disconnectWS(); ws.close(); }
   import('./state.js').then(s => { s.setWs(null); });
   if (gameLoop) { cancelAnimationFrame(gameLoop); setGameLoop(null); }
   import('./state.js').then(s => { s.setIsLive(false); });
