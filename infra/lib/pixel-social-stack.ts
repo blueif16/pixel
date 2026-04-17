@@ -5,6 +5,7 @@ import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import { S3BucketOrigin, LoadBalancerV2Origin } from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import { Platform } from 'aws-cdk-lib/aws-ecr-assets';
@@ -194,8 +195,16 @@ export class PixelSocialStack extends Stack {
       defaultTtl: cdk.Duration.seconds(300),
     });
 
+    const siteCertificate = acm.Certificate.fromCertificateArn(
+      this,
+      'PixelSocialSiteCert',
+      'arn:aws:acm:us-east-1:911319296449:certificate/160f832f-1e0a-4cc6-a9ef-19e2a8ab4cc3',
+    );
+
     const distribution = new cloudfront.Distribution(this, 'PixelSocialDistribution', {
       defaultRootObject: 'index.html',
+      domainNames: ['pixel.infinityopus.com'],
+      certificate: siteCertificate,
       defaultBehavior: {
         origin: S3BucketOrigin.withOriginAccessControl(assetBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
