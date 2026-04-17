@@ -17,6 +17,15 @@ async function generateAvatar(playerId, characterDescription) {
   if (result.errorMessage) {
     throw new Error(`Avatar Lambda failed: ${result.errorMessage}`);
   }
+  if (result.error === 'AVATAR_LIMIT_REACHED') {
+    // Non-admin player hit the per-user generation cap. Preserve the existing URL
+    // so the client can keep the avatar they already have.
+    const err = new Error('AVATAR_LIMIT_REACHED');
+    err.code = 'AVATAR_LIMIT_REACHED';
+    err.existingAvatarUrl = result.avatarUrl;
+    err.genCount = result.genCount;
+    throw err;
+  }
   if (result.error) {
     throw new Error(`Avatar generation failed: ${result.error}`);
   }

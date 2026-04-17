@@ -26,6 +26,15 @@ async function handleCreateCharacter(conn, payload) {
 
     sendTo(conn, { type: 'character_created', payload: { avatarUrl, playerId: conn.playerId } });
   } catch (err) {
+    if (err.code === 'AVATAR_LIMIT_REACHED') {
+      console.log(`[character] limit reached player=${conn.playerId} count=${err.genCount}`);
+      sendTo(conn, { type: 'character_error', payload: {
+        code: 'AVATAR_LIMIT_REACHED',
+        message: 'AVATAR_LIMIT_REACHED',
+        existingAvatarUrl: err.existingAvatarUrl,
+      }});
+      return;
+    }
     console.error(`[character] FAILED player=${conn.playerId}:`, err.message);
     sendTo(conn, { type: 'character_error', payload: { message: err.message || 'Character generation failed. Please try again.' } });
   }

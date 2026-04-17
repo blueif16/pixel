@@ -17,6 +17,8 @@ Thumbs.db
 .env.local
 .env.production
 *.env
+sa-key.json
+lambda/sa-key.json
 
 # CDK context
 infra/cdk.context.json

@@ -22,7 +22,17 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
+from botocore.exceptions import ClientError
+
 from process_sprite import process_image, DEFAULT_RAW_DIR, DEFAULT_OUT_DIR
+
+
+class AvatarLimitReached(Exception):
+    """Raised when a non-admin player hits the per-user generation cap."""
+    def __init__(self, existing_url: str, gen_count: int):
+        super().__init__("AVATAR_LIMIT_REACHED")
+        self.existing_url = existing_url
+        self.gen_count = gen_count
 
 # Load .env from lambda/ dir if python-dotenv is available
 _dotenv_path = Path(__file__).parent / ".env"
@@ -42,10 +52,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-GOOGLE_API_KEY    = os.environ.get("GOOGLE_API_KEY", "")
 IMAGE_GEN_MODEL   = os.environ.get("IMAGE_GEN_MODEL", "gemini-3-pro-image-preview")
+GCP_PROJECT       = os.environ.get("GOOGLE_CLOUD_PROJECT", "nlp-school-488918")
+GCP_LOCATION      = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
 S3_BUCKET         = os.environ.get("S3_BUCKET", "pixel-social-assets")
 CLOUDFRONT_DOMAIN = os.environ.get("CLOUDFRONT_DOMAIN", "")
+
+# Per-user generation cap. Admins bypass the cap and aren't counted.
+MAX_GENERATIONS   = 2
+ADMIN_PLAYER_IDS  = {pid.strip() for pid in os.environ.get("ADMIN_PLAYER_IDS", "").split(",") if pid.strip()}
 
 # ---------------------------------------------------------------------------
 # Prompt template
@@ -66,8 +81,8 @@ RETRY_DELAYS = [5, 15, 30]  # seconds between retries
 
 def generate_image(prompt: str) -> Image.Image:
     """Call Gemini with retries for transient errors. Returns a PIL Image."""
-    logger.info(f"  model={IMAGE_GEN_MODEL}  size=4K  aspect=1:1")
-    client = genai.Client(api_key=GOOGLE_API_KEY)
+    logger.info(f"  model={IMAGE_GEN_MODEL}  size=4K  aspect=1:1  vertex=({GCP_PROJECT}/{GCP_LOCATION})")
+    client = genai.Client(vertexai=True, project=GCP_PROJECT, location=GCP_LOCATION)
 
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
@@ -108,12 +123,37 @@ def generate_image(prompt: str) -> Image.Image:
 # ===================================================================
 # Full pipeline (Lambda use)
 # ===================================================================
-def generate_avatar(player_id: str, description: str) -> dict:
-    """prompt → Gemini → process_sprite → S3. Returns { avatarUrl }."""
-    safe_desc   = description.strip()[:300]
-    full_prompt = PROMPT_TEMPLATE.format(description=safe_desc)
+def _read_gen_count(s3, key: str) -> int:
+    """Returns existing gen-count (0 if object doesn't exist)."""
+    try:
+        obj = s3.head_object(Bucket=S3_BUCKET, Key=key)
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("404", "NoSuchKey", "NotFound"):
+            return 0
+        raise
+    # Legacy objects without metadata are treated as "already generated once".
+    return int(obj.get("Metadata", {}).get("gen-count", "1"))
 
-    logger.info(f"[1/3] Generating image  player={player_id}: {safe_desc[:80]}...")
+
+def generate_avatar(player_id: str, description: str) -> dict:
+    """prompt → Gemini → process_sprite → S3. Returns { avatarUrl }.
+
+    Non-admin players are capped at MAX_GENERATIONS total. Count is stored as
+    S3 object metadata (gen-count) on avatars/{playerId}.png — no DB needed.
+    """
+    safe_desc = description.strip()[:300]
+    key       = f"avatars/{player_id}.png"
+    is_admin  = player_id in ADMIN_PLAYER_IDS
+
+    s3 = boto3.client("s3")
+    current_count = 0 if is_admin else _read_gen_count(s3, key)
+    if not is_admin and current_count >= MAX_GENERATIONS:
+        existing_url = f"https://{CLOUDFRONT_DOMAIN}/{key}"
+        logger.info(f"  LIMIT REACHED player={player_id} count={current_count} → {existing_url}")
+        raise AvatarLimitReached(existing_url, current_count)
+
+    full_prompt = PROMPT_TEMPLATE.format(description=safe_desc)
+    logger.info(f"[1/3] Generating image  player={player_id} (gen #{current_count + 1}, admin={is_admin}): {safe_desc[:80]}...")
     raw_img = generate_image(full_prompt)
 
     logger.info("[2/3] Processing sprite (rembg → split → assemble)...")
@@ -123,15 +163,17 @@ def generate_avatar(player_id: str, description: str) -> dict:
     buf = io.BytesIO()
     sheet.save(buf, format="PNG")
 
-    key = f"avatars/{player_id}.png"
-    boto3.client("s3").put_object(
+    # Admins always write gen-count=0 so they stay unlimited even if removed from admin list.
+    new_count = 0 if is_admin else current_count + 1
+    s3.put_object(
         Bucket=S3_BUCKET,
         Key=key,
         Body=buf.getvalue(),
         ContentType="image/png",
         CacheControl="max-age=86400",
+        Metadata={"gen-count": str(new_count)},
     )
-    logger.info(f"  → s3://{S3_BUCKET}/{key}")
+    logger.info(f"  → s3://{S3_BUCKET}/{key}  gen-count={new_count}")
 
     return {"avatarUrl": f"https://{CLOUDFRONT_DOMAIN}/{key}"}
 
@@ -156,6 +198,9 @@ def handler(event, context):
         try:
             result = generate_avatar(player_id, description)
             return {'statusCode': 200, 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, 'body': json.dumps(result)}
+        except AvatarLimitReached as e:
+            return {'statusCode': 409, 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps({'error': 'AVATAR_LIMIT_REACHED', 'avatarUrl': e.existing_url, 'genCount': e.gen_count})}
         except Exception as e:
             logger.error(f"Failed: {e}", exc_info=True)
             return {'statusCode': 500, 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': str(e)})}
@@ -164,6 +209,8 @@ def handler(event, context):
         player_id   = event["playerId"]
         description = event.get("description", "a friendly character with colorful clothes")
         return generate_avatar(player_id, description)
+    except AvatarLimitReached as e:
+        return {"error": "AVATAR_LIMIT_REACHED", "avatarUrl": e.existing_url, "genCount": e.gen_count}
     except Exception as e:
         logger.error(f"Failed: {e}", exc_info=True)
         return {"error": str(e)}

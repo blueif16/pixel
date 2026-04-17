@@ -340,17 +340,37 @@ export class PixelSocialStack extends Stack {
       environment: {
         S3_BUCKET: assetBucket.bucketName,
         CLOUDFRONT_DOMAIN: distribution.distributionDomainName,
-        GOOGLE_API_KEY: 'TODO_REPLACE',
         IMAGE_GEN_MODEL: 'gemini-3-pro-image-preview',
+        // Vertex AI auth — SA key JSON baked into image at /var/task/sa-key.json
+        GOOGLE_APPLICATION_CREDENTIALS: '/var/task/sa-key.json',
+        GOOGLE_CLOUD_PROJECT: 'nlp-school-488918',
+        GOOGLE_CLOUD_LOCATION: 'global',
+        // rembg — loaded from infra/.env at synth time (see bin/infra.ts).
+        // Not committed to git; set these before running cdk deploy.
+        REMBG_API_URL: process.env.REMBG_API_URL ?? '',
+        REMBG_API_KEYS: process.env.REMBG_API_KEYS ?? '',
+        // Admin Cognito sub(s) that bypass the per-user avatar generation cap. Comma-separated.
+        // xinx2023@gmail.com
+        ADMIN_PLAYER_IDS: '4488f408-60f1-70b6-3b7a-ffd35ebe5632',
       },
     });
 
-    // Lambda S3 write policy
+    // Lambda S3 read+write policy (GetObject/HeadObject needed to read gen-count metadata)
     avatarLambda.role!.addToPrincipalPolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
-        actions: ['s3:PutObject'],
+        actions: ['s3:PutObject', 's3:GetObject'],
         resources: [`${assetBucket.bucketArn}/avatars/*`],
+      })
+    );
+    // ListBucket on the bucket itself — so HeadObject on missing keys returns
+    // 404 instead of 403, which is what _read_gen_count expects.
+    avatarLambda.role!.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['s3:ListBucket'],
+        resources: [assetBucket.bucketArn],
+        conditions: { StringLike: { 's3:prefix': ['avatars/*'] } },
       })
     );
 

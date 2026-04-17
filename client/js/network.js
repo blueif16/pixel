@@ -120,6 +120,11 @@ function handleWSMessage(msg) {
       clearInterval(genTimer);
       document.getElementById('gen-overlay').classList.remove('active');
       document.getElementById('gen-btn').disabled = false;
+      if (msg.payload?.code === 'AVATAR_LIMIT_REACHED') {
+        log('Generation limit reached (2/2)', 'error');
+        alert('You\'ve reached the limit of 2 character generations for this account.\nPick one from the grid below, or use the character you already generated.');
+        break;
+      }
       log(`Gen failed: ${msg.payload?.message}`, 'error');
       alert(`Character generation failed:\n${msg.payload?.message || 'Unknown error'}\n\nPlease try again.`);
       break;
